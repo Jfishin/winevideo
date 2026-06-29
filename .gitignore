@@ -1,0 +1,11 @@
+# build outputs / scratch
+build/
+dist/
+*.o
+*.obj
+*.exe
+# stray wine/winedbg crash dumps
+backtrace*.txt
+*.cxlog
+*.log
+.DS_Store
