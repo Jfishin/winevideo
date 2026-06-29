@@ -14,9 +14,13 @@ SEL_BOTTLES=("$@")
 SS="$APP/Contents/SharedSupport/CrossOver"
 LIB64="$SS/lib64"; PLUGDIR="$LIB64/gstreamer-1.0"
 WINE_PE="$SS/lib/wine/x86_64-windows"; WINE_UNIX="$SS/lib/wine/x86_64-unix"; BIN="$SS/bin"
-BK="$APP/.winevideo-backup"
+BK="${APP}.winevideo-backup"; [ -d "$BK" ] || BK="$APP/.winevideo-backup"   # new (sibling) or legacy (inside)
 
 echo "=== restore $APP to stock ==="
+# re-enable the original code-signature seal we renamed aside
+for s in CodeResources _CodeSignature; do
+  [ -e "$APP/Contents/${s}_disabled" ] && mv -f "$APP/Contents/${s}_disabled" "$APP/Contents/$s" && echo "  re-enabled Contents/$s"
+done
 [ -f "$BK/winegstreamer.dll" ] && cp "$BK/winegstreamer.dll" "$WINE_PE/winegstreamer.dll" && echo "  winegstreamer.dll"
 [ -f "$BK/winegstreamer.so" ]  && cp "$BK/winegstreamer.so"  "$WINE_UNIX/winegstreamer.so" && echo "  winegstreamer.so"
 [ -f "$BK/mfplat.dll" ]        && cp "$BK/mfplat.dll"        "$WINE_PE/mfplat.dll" && echo "  mfplat.dll"

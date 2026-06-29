@@ -37,7 +37,8 @@ PLUGDIR="$LIB64/gstreamer-1.0"
 WINE_PE="$SS/lib/wine/x86_64-windows"
 WINE_UNIX="$SS/lib/wine/x86_64-unix"
 BIN="$SS/bin"
-BK="$APP/.winevideo-backup"; mkdir -p "$BK"
+# keep the backup OUTSIDE the bundle so it never interferes with the bundle seal
+BK="${APP}.winevideo-backup"; mkdir -p "$BK"
 
 echo "=== winevideo VP9 patcher -> $APP ==="
 
@@ -117,5 +118,17 @@ if [ -n "$MISSING" ]; then
   echo "   or grant this app Full Disk Access in System Settings ▸ Privacy & Security, then re-run."
   exit 1
 fi
+
+# Modifying the bundle breaks its code-signature seal. Do NOT re-sign (that strips
+# Wine's entitlements). Instead DISABLE the seal by renaming it aside, so macOS
+# has no broken seal to reject ("damaged") — the nested binaries keep their own
+# embedded signatures + entitlements and run fine. Restore renames these back.
+echo "--- disable the bundle code-signature seal (so the modified app launches) ---"
+for s in CodeResources _CodeSignature; do
+  if [ -e "$APP/Contents/$s" ]; then
+    mv -f "$APP/Contents/$s" "$APP/Contents/${s}_disabled" 2>/dev/null && echo "    disabled Contents/$s"
+  fi
+done
+xattr -dr com.apple.quarantine "$APP" 2>/dev/null
 
 echo "=== DONE. Patched $APP (originals backed up in $BK). Restore with restore.sh ==="
