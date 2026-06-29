@@ -11,6 +11,17 @@ frame reaches the GPU. winevideo patches a copy of CrossOver to fix both.
 Reference test title: **Ninja Gaiden 4** (VP9-in-WebM cutscenes) — boots to gameplay
 with cutscenes playing.
 
+## Screenshots
+
+The drag-and-drop patcher, and a VP9 cutscene playing in Ninja Gaiden 4 under
+CrossOver 26.2 on the d3dmetal backend:
+
+<p align="center">
+  <img src="docs/images/patcher-app.png" alt="winevideo Patcher window" height="340">
+  &nbsp;&nbsp;
+  <img src="docs/images/ng4-cutscene.png" alt="VP9 cutscene playing in Ninja Gaiden 4 under CrossOver 26.2" height="340">
+</p>
+
 ## What it does
 
 1. **Adds a real VP9/VP8 decoder** to CrossOver's GStreamer-backed Media Foundation
@@ -97,9 +108,9 @@ The payload is prebuilt, so rebuilding is only needed to modify the Wine DLLs. S
 - **Unreal Engine titles using ElectraPlayer** (UE's own video stack) are **not** covered
   — Electra decodes independently of Media Foundation. Workaround: disable the game's
   startup/cutscene movies.
-- The d3dmetal NV12→BGRA fallback may render some cutscenes with incorrect colors. The
-  game running without crashing is the goal; a complete fix for NV12 video textures
-  belongs in the D3D11→Metal backend itself.
+- The d3dmetal NV12→BGRA fallback may render some cutscenes with incorrect colors: it
+  prioritizes crash-free playback over color accuracy. A complete fix for NV12 video
+  textures belongs in the D3D11→Metal backend itself.
 
 ## Licensing
 
@@ -108,3 +119,29 @@ prebuilt payload consists of Wine DLLs rebuilt from Wine source and GStreamer pl
 their dependencies, all derived from LGPL projects (Wine, GStreamer, libvpx, etc.).
 winevideo patches an existing, separately-licensed **CrossOver 26.2** install — you must
 supply your own.
+
+## Disclaimer
+
+This is an unofficial, community modification of CrossOver. It is provided **as-is, with
+no warranty of any kind**, and you use it **entirely at your own risk**. The authors are
+not liable for any damage, data loss, or broken installs resulting from its use. Always
+patch a *separate copy* of CrossOver and keep your original install untouched.
+
+- **No support for this project.** You are not entitled to support, fixes, or updates of
+  any kind. The authors are under no obligation to respond to issues or questions, and may
+  not.
+- **No CodeWeavers support for a patched CrossOver.** CodeWeavers supports CrossOver only
+  in its original, unmodified form. Do **not** contact CodeWeavers or use their support
+  channels for problems with a patched copy, and do not report bugs to them that occur on a
+  patched install. If you want official support, run a stock, unpatched CrossOver.
+- **License compliance is your responsibility.** Modifying CrossOver may fall outside the
+  terms of your CrossOver license. Ensuring your use complies with CodeWeavers' license
+  terms is up to you.
+- **Not affiliated.** winevideo is not affiliated with, authorized by, or endorsed by
+  CodeWeavers, Apple, or any game publisher. "CrossOver" is a trademark of CodeWeavers;
+  all other names and trademarks are the property of their respective owners.
+
+## AI disclosure
+
+This project — its code, scripts, and documentation — is **fully AI-generated**,
+human-steered, and human-tested. Review the changes before running them.
