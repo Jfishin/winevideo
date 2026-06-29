@@ -33,8 +33,13 @@ final class Model: ObservableObject {
             append("⚠️ That doesn't look like a CrossOver app (no Contents/SharedSupport/CrossOver).")
             return
         }
-        let dst = src.deletingLastPathComponent().appendingPathComponent("CrossOver winevideo.app")
-        DispatchQueue.main.async { self.busy = true; self.stage = "Duplicating CrossOver.app… (this can take a minute)" }
+        // Put the duplicate in ~/Applications (user-writable). Writing INTO an app
+        // bundle in /Applications is blocked for Finder-launched apps by macOS
+        // "App Management" (TCC); the home Applications folder is not protected.
+        let userApps = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications")
+        try? FileManager.default.createDirectory(at: userApps, withIntermediateDirectories: true)
+        let dst = userApps.appendingPathComponent("CrossOver winevideo.app")
+        DispatchQueue.main.async { self.busy = true; self.stage = "Duplicating CrossOver.app → ~/Applications … (this can take a minute)" }
         append("Duplicating:\n  \(src.path)\n→ \(dst.path)")
         DispatchQueue.global(qos: .userInitiated).async {
             do {
@@ -88,6 +93,11 @@ final class Model: ObservableObject {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: tool)
             p.arguments = args
+            // Finder-launched apps get a minimal PATH; give the script the full set
+            // so otool/install_name_tool/codesign/python3 resolve.
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
+            p.environment = env
             let pipe = Pipe()
             p.standardOutput = pipe; p.standardError = pipe
             pipe.fileHandleForReading.readabilityHandler = { h in

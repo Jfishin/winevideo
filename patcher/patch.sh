@@ -97,4 +97,19 @@ fi
 # refresh gstreamer plugin registry so the new plugins are scanned
 find "$HOME/Library/Application Support/CrossOver" -iname "*gstreamer*registry*x86_64*" -delete 2>/dev/null
 
+# ---- verify the app files actually landed (catches silent TCC/permission denials) ----
+MISSING=""
+for f in "$WINE_PE/winegstreamer.dll" "$WINE_PE/mfplat.dll" "$WINE_UNIX/winegstreamer.so" \
+         "$PLUGDIR/libgstvpx.dylib" "$PLUGDIR/libgstmatroska.dylib" "$LIB64/libvpx.9.dylib"; do
+  [ -f "$f" ] || MISSING="$MISSING\n    - $f"
+done
+if [ -n "$MISSING" ]; then
+  echo ""
+  echo "❌ PATCH INCOMPLETE — these files did not get written:$MISSING"
+  echo "   This is almost always macOS blocking writes into the app bundle."
+  echo "   Fix: keep the patched app in your HOME ~/Applications folder (not /Applications),"
+  echo "   or grant this app Full Disk Access in System Settings ▸ Privacy & Security, then re-run."
+  exit 1
+fi
+
 echo "=== DONE. Patched $APP (originals backed up in $BK). Restore with restore.sh ==="
