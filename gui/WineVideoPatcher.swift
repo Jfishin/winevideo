@@ -112,11 +112,14 @@ final class Model: ObservableObject {
                 let (r, out2) = self.shellOut("/bin/bash", bargs); rc2 = r
                 self.append(out2)
             } else {
-                self.append("(no bottles selected — app is patched; use “Scan bottles” + select to register VP9 per game bottle)")
+                self.append("⚠️ No bottle selected. The app is patched, but VP9 games like Ninja Gaiden 4 also need their bottle patched — click “Scan bottles”, tick your game's bottle, and Patch again.")
             }
             DispatchQueue.main.async {
                 self.busy = false; self.stage = ""
-                if soOK && rc2 == 0 { self.append("\n✅ APP PATCHED. Launch it and play. (rc app=\(rc1))") }
+                if soOK && rc2 == 0 {
+                    let extra = bottles.isEmpty ? " (no bottle patched — see warning above)" : " + bottle(s): \(bottles.sorted().joined(separator: ", "))"
+                    self.append("\n✅ PATCHED: app\(extra). Launch it and play.")
+                }
                 else if !soOK { self.append("\n❌ App files did NOT get installed (admin step rc=\(rc1)). If no password prompt appeared, the admin step was blocked — try again, or run the patcher from Terminal.") }
                 else { self.append("\n⚠️ App patched but a bottle step had issues (rc=\(rc2)).") }
             }
@@ -158,7 +161,7 @@ struct DropZone: View {
                 Image(systemName: "wineglass").font(.system(size: 28))
                 Text(m.dupAppPath == nil ? "Drag your CrossOver.app here" : "Duplicated ✓")
                     .font(.headline)
-                Text(m.dupAppPath ?? "creates “CrossOver winevideo.app” next to it")
+                Text(m.dupAppPath ?? "copies it to ~/Applications/CrossOver-winevideo.app")
                     .font(.caption).foregroundColor(.secondary).lineLimit(1).truncationMode(.middle)
             }.padding()
         }
@@ -181,13 +184,13 @@ struct ContentView: View {
             DropZone(m: m)
             Text(m.dupAppPath == nil
                  ? "Step 1 — drop your CrossOver.app above (it makes a copy)."
-                 : "Step 2 — click “Patch app” (asks for your password; this is what actually applies the fix).\nStep 3 (optional) — Scan bottles, tick the ones holding your games, then Patch app again.")
+                 : "Step 2 — click “Scan bottles” and tick the bottle you play your VP9 game (e.g. Ninja Gaiden 4) in.\nStep 3 — click “Patch app” (asks for your password). This patches the app AND the selected bottle in one go.")
                 .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 Button { m.runPatch() } label: { Label("Patch app", systemImage: "bandage.fill").frame(maxWidth: .infinity) }
                     .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
                     .disabled(m.busy || m.dupAppPath == nil)
-                Button { m.scanBottles() } label: { Label("Scan bottles (optional)", systemImage: "magnifyingglass") }
+                Button { m.scanBottles() } label: { Label("Scan bottles", systemImage: "magnifyingglass") }
                     .disabled(m.busy || m.dupAppPath == nil)
             }
             if !m.bottles.isEmpty {

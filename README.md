@@ -54,10 +54,12 @@ Open `gui/winevideo Patcher.app`:
 
 1. Drag your `CrossOver.app` onto the window — it duplicates to
    `~/Applications/CrossOver-winevideo.app`.
-2. Click **Patch app** and authenticate at the prompt (writing inside an app bundle
-   requires elevation on macOS).
-3. *(Optional)* **Scan bottles**, tick the bottles holding your games, and Patch again
-   to register VP9 per-bottle.
+2. Click **Scan bottles** and tick the bottle you play your VP9 game (e.g. Ninja Gaiden 4)
+   in. Games gate on the VP9 decoder MFT, which is registered *per bottle* — so the bottle
+   you play in must be patched, not just the app.
+3. Click **Patch app** and authenticate at the prompt (writing inside an app bundle
+   requires elevation on macOS). This patches the app **and** the selected bottle(s) in one
+   step.
 4. Launch `~/Applications/CrossOver-winevideo.app` and run the game.
 
 The app is unsigned; clear quarantine before first launch:
@@ -127,9 +129,9 @@ no warranty of any kind**, and you use it **entirely at your own risk**. The aut
 not liable for any damage, data loss, or broken installs resulting from its use. Always
 patch a *separate copy* of CrossOver and keep your original install untouched.
 
-- **No support for this project.** You are not entitled to support, fixes, or updates of
-  any kind. The authors are under no obligation to respond to issues or questions, and may
-  not.
+- **Support is best-effort.** This is a hobby project shared as-is, so there's no
+  guarantee of support, fixes, or updates. Feel free to open an issue — just know that
+  replies may be slow or may not come.
 - **No CodeWeavers support for a patched CrossOver.** CodeWeavers supports CrossOver only
   in its original, unmodified form. Do **not** contact CodeWeavers or use their support
   channels for problems with a patched copy, and do not report bugs to them that occur on a

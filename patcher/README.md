@@ -22,8 +22,10 @@ GStreamer 1.24.5 and are version-specific.
 Open `../gui/winevideo Patcher.app` (build it with `../gui/build-app.sh` if needed):
 
 1. Drag your `CrossOver.app` in → it duplicates to `~/Applications/CrossOver-winevideo.app`.
-2. Click **Patch app** and authenticate (writing inside an app bundle needs elevation).
-3. Optional: **Scan bottles**, tick the bottles with your games, Patch again.
+2. Click **Scan bottles** and tick the bottle you play your VP9 game in (required — games
+   gate on the per-bottle VP9 decoder MFT, so the bottle must be patched too).
+3. Click **Patch app** and authenticate (writing inside an app bundle needs elevation).
+   This patches the app **and** the selected bottle(s) together.
 4. Launch `~/Applications/CrossOver-winevideo.app`.
 
 Clear quarantine on the unsigned patcher app before first launch:
