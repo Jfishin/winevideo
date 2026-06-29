@@ -88,38 +88,52 @@ final class Model: ObservableObject {
         guard let app = dupAppPath else { append("Duplicate an app first."); return }
         let script = (resDir as NSString).appendingPathComponent("patch.sh")
         guard FileManager.default.fileExists(atPath: script) else { append("❌ bundled patch.sh missing"); return }
-        var args = [script, app]
-        args += Array(selected)
-        DispatchQueue.main.async { self.busy = true; self.stage = "Patching…" }
-        append("\n=== Patching ===\n\(app)\nbottles: \(selected.isEmpty ? "(all)" : selected.sorted().joined(separator: ", "))")
-        run("/bin/bash", args)
-    }
-
-    private func run(_ tool: String, _ args: [String]) {
+        let bottles = Array(selected)
+        DispatchQueue.main.async { self.busy = true; self.stage = "Patching… (you'll be asked for your password once)" }
+        append("\n=== Patching ===\n\(app)\nbottles: \(bottles.isEmpty ? "(all)" : bottles.sorted().joined(separator: ", "))")
         DispatchQueue.global(qos: .userInitiated).async {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: tool)
-            p.arguments = args
-            // Finder-launched apps get a minimal PATH; give the script the full set
-            // so otool/install_name_tool/codesign/python3 resolve.
-            var env = ProcessInfo.processInfo.environment
-            env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
-            p.environment = env
-            let pipe = Pipe()
-            p.standardOutput = pipe; p.standardError = pipe
-            pipe.fileHandleForReading.readabilityHandler = { h in
-                let d = h.availableData
-                if !d.isEmpty, let s = String(data: d, encoding: .utf8) { self.append(s) }
-            }
-            do { try p.run(); p.waitUntilExit() } catch {
-                self.append("❌ failed to run: \(error.localizedDescription)")
-            }
-            pipe.fileHandleForReading.readabilityHandler = nil
+            // 1) APP files as ADMIN — macOS blocks a GUI app from modifying another
+            //    .app's contents (App Management TCC); an admin prompt bypasses that.
+            //    Wrap in a temp script so spaced paths don't fight AppleScript escaping.
+            let tmp = "/tmp/winevideo-apppatch.sh"
+            let body = "#!/bin/bash\nexport PATH=/usr/bin:/bin:/usr/sbin:/sbin\nexec /bin/bash \"\(script)\" --app-only \"\(app)\"\n"
+            try? body.write(toFile: tmp, atomically: true, encoding: .utf8)
+            _ = self.shell("/bin/chmod", ["+x", tmp])
+            let osa = "do shell script \"/bin/bash /tmp/winevideo-apppatch.sh 2>&1\" with administrator privileges"
+            let (rc1, out1) = self.shellOut("/usr/bin/osascript", ["-e", osa])
+            self.append(out1.isEmpty ? "(app-file step finished, rc=\(rc1))" : out1)
+            try? FileManager.default.removeItem(atPath: tmp)
+            // 2) BOTTLE registry as the USER — wine must NOT run as root.
+            var bargs = [script, "--bottle-only", app]; bargs += bottles
+            let (rc2, out2) = self.shellOut("/bin/bash", bargs)
+            self.append(out2)
             DispatchQueue.main.async {
                 self.busy = false; self.stage = ""
-                self.append(p.terminationStatus == 0 ? "\n✅ Done. Launch the patched app and play." : "\n❌ exited \(p.terminationStatus)")
+                if rc1 == 0 && rc2 == 0 { self.append("\n✅ Done. Launch the patched app and play.") }
+                else { self.append("\n⚠️ Finished with issues (app rc=\(rc1), bottle rc=\(rc2)). See log above.") }
             }
         }
+    }
+
+    // run a tool, return exit code only
+    @discardableResult private func shell(_ tool: String, _ args: [String]) -> Int32 {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: tool); p.arguments = args
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"; p.environment = env
+        do { try p.run() } catch { return -1 }
+        p.waitUntilExit(); return p.terminationStatus
+    }
+
+    // run a tool, return (exit code, combined output)
+    private func shellOut(_ tool: String, _ args: [String]) -> (Int32, String) {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: tool); p.arguments = args
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"; p.environment = env
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+        do { try p.run() } catch { return (-1, "failed to run \(tool): \(error.localizedDescription)") }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
     }
 }
 

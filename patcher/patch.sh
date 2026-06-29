@@ -25,8 +25,14 @@ COMPAT="$PAY/patch_macho_compat.py"
 GBSH='{317df618-5e5a-468a-9f15-d827a9a08162}'   # CLSID_GStreamerByteStreamHandler
 BOTTLES="$HOME/Library/Application Support/CrossOver/Bottles"
 
+# Optional mode flag (must be first). The GUI runs the app-file part as root via
+# an admin prompt (to bypass macOS App-Management TCC), and the bottle part as the
+# user (wine must NOT run as root). No flag = do everything (terminal use).
+MODE=all
+case "${1:-}" in --app-only) MODE=app; shift;; --bottle-only) MODE=bottle; shift;; esac
+
 APP="${1:-}"
-[ -z "$APP" ] && { echo "usage: $0 /path/to/CrossOver.app [bottle ...]"; exit 2; }
+[ -z "$APP" ] && { echo "usage: $0 [--app-only|--bottle-only] /path/to/CrossOver.app [bottle ...]"; exit 2; }
 [ -d "$APP/Contents/SharedSupport/CrossOver" ] || { echo "ERROR: not a CrossOver app: $APP"; exit 2; }
 shift || true
 SEL_BOTTLES=("$@")
@@ -61,6 +67,7 @@ fix_so(){ local so="$1"
   codesign -f -s - "$so" 2>/dev/null
 }
 
+if [ "$MODE" != bottle ]; then
 echo "--- app: winegstreamer (VP9/AV1 caps) + mfplat (NV12->BGRA fallback) ---"
 backup "winegstreamer.dll" "$WINE_PE/winegstreamer.dll"
 backup "winegstreamer.so"  "$WINE_UNIX/winegstreamer.so"
@@ -79,6 +86,7 @@ done
 
 echo "--- app: enable applemedia (VideoToolbox h264/hevc), if present disabled ---"
 [ -f "$PLUGDIR/libgstapplemedia.dylib.disabled" ] && cp "$PLUGDIR/libgstapplemedia.dylib.disabled" "$PLUGDIR/libgstapplemedia.dylib"
+fi   # end MODE != bottle (app-file section)
 
 # ---- per-bottle registry ----
 patch_bottle(){ local b="$1"; local dir="$BOTTLES/$b"
@@ -95,6 +103,7 @@ patch_bottle(){ local b="$1"; local dir="$BOTTLES/$b"
   rm -f "$dir/drive_c/vp9-mft.reg" 2>/dev/null
 }
 
+if [ "$MODE" != app ]; then
 echo "--- bottles: register VP9 decoder MFT + webm/mkv/msd handlers ---"
 if [ "${#SEL_BOTTLES[@]}" -gt 0 ]; then
   for b in "${SEL_BOTTLES[@]}"; do patch_bottle "$b"; done
@@ -103,6 +112,9 @@ else
 fi
 # refresh gstreamer plugin registry so the new plugins are scanned
 find "$HOME/Library/Application Support/CrossOver" -iname "*gstreamer*registry*x86_64*" -delete 2>/dev/null
+fi   # end MODE != app (bottle section)
+
+if [ "$MODE" = bottle ]; then echo "=== bottle registration done ($APP) ==="; exit 0; fi
 
 # ---- verify the app files actually landed (catches silent TCC/permission denials) ----
 MISSING=""
