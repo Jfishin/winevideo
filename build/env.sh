@@ -13,8 +13,10 @@ export FFMPEG_INSTALL="$HOME/.local/cxge/install/ffmpeg"   # FFmpeg 7.1 (matches
 # x86_64 Homebrew
 export BREW_PREFIX="/usr/local"
 
-# CrossOver runtime
-export CX_APP="/Applications/CrossOver.app"
+# CrossOver runtime — test against a DISPOSABLE COPY of CrossOver 26.2.
+# Real apps (never modify): user's 26.2 at /Users/jfishin/UltimateLauncher/tools/CrossOver.app,
+# and 26.0 at /Applications/CrossOver.app. Source we build from is 26.2.0 → match the 26.2 copy.
+export CX_APP="${CX_APP:-$HOME/.local/winevideo/CrossOver-test.app}"
 export CX_LIB="$CX_APP/Contents/SharedSupport/CrossOver/lib"
 export CX_LIB64="$CX_APP/Contents/SharedSupport/CrossOver/lib64"
 export CX_WINE_PE="$CX_LIB/wine/x86_64-windows"
