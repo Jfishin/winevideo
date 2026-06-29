@@ -47,5 +47,18 @@ for ext in .webm .mkv .msd; do
   "$CX_BIN/wine" reg add "HKLM\\Software\\Microsoft\\Windows Media Foundation\\ByteStreamHandlers\\$ext" /v "$GBSH" /d "GStreamer Byte Stream Handler" /f >/dev/null 2>&1
 done
 "$CX_BIN/wineserver" -k 2>/dev/null
+
+echo "=== register VP9 decoder MFT (so MFTEnumEx advertises VP9 — game capability gate) ==="
+# Games (e.g. Ninja Gaiden 4) call MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, VP90) and
+# show "Failed to Play VP9" if it returns 0. This registers a REAL winegstreamer-backed
+# VP9 decoder MFT (CLSID recognised by mfplat.c -> vp9_decoder_create). regedit /S is
+# used because wine's `reg import`/`reg delete` silently no-op on these keys.
+BOTTLE_C="$HOME/Library/Application Support/CrossOver/Bottles/${CX_BOTTLE}/drive_c"
+cp ./vp9-mft.reg "$BOTTLE_C/vp9-mft.reg"
+"$CX_BIN/wine" regedit /S 'C:\vp9-mft.reg' >/dev/null 2>&1
+"$CX_BIN/wineserver" -k 2>/dev/null
+rm -f "$BOTTLE_C/vp9-mft.reg"
+
 find "$HOME/Library/Application Support/CrossOver" -iname "*gstreamer*registry*x86_64*" -delete 2>/dev/null
 echo "VP9 patch installed into $CX_APP (bottle ${CX_BOTTLE:-Test})"
+echo "  verify: CX_BOTTLE=${CX_BOTTLE} $CX_BIN/wine /tmp/mft_probe.exe vp9   # expect '1 decoder ADVERTISED'"
