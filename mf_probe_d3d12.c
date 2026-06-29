@@ -5,7 +5,7 @@
  * allocated as a D3D texture on d3dmetal — where it dies with Metal
  * "MTLTextureDescriptor has invalid pixelFormat (0)".
  *
- * Plain D3D11 routes to DXVK (works); only D3D12+D3D11On12 reaches d3dmetal.
+ * Plain D3D11 does not reach d3dmetal here; only the D3D12+D3D11On12 path does.
  *
  * Build (llvm-mingw):
  *   x86_64-w64-mingw32-gcc mf_probe_d3d12.c -o mf_probe_d3d12.exe \

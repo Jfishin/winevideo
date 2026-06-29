@@ -6,7 +6,7 @@ index 4d75924..84b989c 100644
      if (FAILED(hr = sample_allocator_get_surface_service(allocator, &service)))
          return hr;
  
-+    /* Some D3D11 backends (notably CrossOver d3dmetal's DXMT, which has no
++    /* Some D3D11 backends (notably CrossOver's d3dmetal, which has no
 +     * MTLPixelFormat for NV12) cannot create YUV textures: CreateTexture2D with
 +     * an unsupported format yields an invalid Metal descriptor and aborts the
 +     * whole process. Honor CheckFormatSupport and fall back to B8G8R8A8 so the

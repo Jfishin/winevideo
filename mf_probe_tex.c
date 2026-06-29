@@ -1,5 +1,5 @@
 /* mf_probe_tex.c — directly probe which D3D11 texture formats the active backend
- * (DXMT under d3dmetal) can create. Isolates whether NV12 is fundamentally
+ * (d3dmetal's D3D11) can create. Isolates whether NV12 is fundamentally
  * unsupported vs. only-with-certain-flags. Each CreateTexture2D that hits an
  * invalid Metal pixelFormat aborts the process, so BGRA is tested first.
  *

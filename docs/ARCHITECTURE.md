@@ -11,7 +11,7 @@ CrossOver 26.2 is based on Wine 11.0 and bundles:
   It demuxes and decodes via GStreamer `decodebin`, returning decoded frames to
   `IMFSourceReader`. (`winedmo` / `mfsrcsnk` exist but are dormant for these paths.)
 - **FFmpeg 7.1** (libavcodec 61, libavformat 61, libavutil 59, libswscale 8).
-- Graphics backends: **d3dmetal** (Apple GPTK; D3D11 + D3D12 → Metal) and DXVK.
+- Graphics backends: **d3dmetal** (Apple GPTK; D3D11 + D3D12 → Metal).
 
 A Media Foundation source is resolved by: scheme handler (`file:`) → byte-stream
 handler (by extension, from `HKLM\…\Windows Media Foundation\ByteStreamHandlers\<ext>`)
@@ -86,8 +86,7 @@ crashes on the first frame on the d3dmetal backend.
   `-[MTLTextureDescriptorInternal validateWithDevice:] … invalid pixelFormat (0)`.
   Wine surfaces it as `EXCEPTION_WINE_ASSERTION`. The process dies.
 
-This is **codec-independent** — H.264 video crashes identically. DXVK (D3D11→Vulkan→
-MoltenVK) handles NV12 and does not crash, but most D3D12 titles require d3dmetal.
+This is **codec-independent** — H.264 video crashes identically. The crash is specific to the d3dmetal D3D11 path, which most D3D12 titles require.
 
 **Fix** (`build/patches/0004`, `mfplat/sample.c`): in the sample allocator, call
 `ID3D11Device_CheckFormatSupport` before `CreateTexture2D`; if the format is not
