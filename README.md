@@ -149,3 +149,24 @@ patch a *separate copy* of CrossOver and keep your original install untouched.
 
 This project — its code, scripts, and documentation — is **fully AI-generated**,
 human-steered, and human-tested. Review the changes before running them.
+
+## Credits
+
+winevideo builds on the work of several projects:
+
+- **[CrossOver](https://www.codeweavers.com/crossover) by CodeWeavers** — the Wine
+  distribution this patches, and the best Wine experience on macOS. Everything here runs on
+  top of CodeWeavers' work bringing Windows games to the Mac.
+- **[GE-Proton](https://github.com/GloriousEggroll/proton-ge-custom) (GloriousEggroll)** —
+  referenced for its excellent video/codec-related Wine work, which informed the
+  winegstreamer + Media Foundation approach used here.
+- **[CXPatcher](https://github.com/italomandara/CXPatcher)** — referenced for the
+  drag-and-drop app-patching model and for handling macOS's quarantine and code-signing
+  quirks that a redistributable patched app has to deal with.
+- **[Wine](https://www.winehq.org/), [GStreamer](https://gstreamer.freedesktop.org/) (and
+  its dependencies), and [libvpx](https://github.com/webmproject/libvpx)** — the upstream
+  open-source projects the patch is actually built from: the rebuilt Wine DLLs, the
+  GStreamer VP9/Matroska plugins, and the VP9 decoder itself. See [Licensing](#licensing).
+
+winevideo is an independent, unofficial project and is not affiliated with or endorsed by
+any of the above.
