@@ -1,0 +1,32 @@
+diff --git a/dlls/mfplat/sample.c b/dlls/mfplat/sample.c
+index 4d75924..84b989c 100644
+--- a/dlls/mfplat/sample.c
++++ b/dlls/mfplat/sample.c
+@@ -1491,6 +1491,27 @@ static HRESULT sample_allocator_initialize(struct sample_allocator *allocator, u
+     if (FAILED(hr = sample_allocator_get_surface_service(allocator, &service)))
+         return hr;
+ 
++    /* Some D3D11 backends (notably CrossOver d3dmetal's DXMT, which has no
++     * MTLPixelFormat for NV12) cannot create YUV textures: CreateTexture2D with
++     * an unsupported format yields an invalid Metal descriptor and aborts the
++     * whole process. Honor CheckFormatSupport and fall back to B8G8R8A8 so the
++     * texture is always creatable instead of crashing. */
++    if (service.d3d11_device && allocator->frame_desc.dxgi_format != DXGI_FORMAT_B8G8R8A8_UNORM
++            && allocator->frame_desc.dxgi_format != DXGI_FORMAT_B8G8R8X8_UNORM)
++    {
++        UINT support = 0;
++        if (FAILED(ID3D11Device_CheckFormatSupport(service.d3d11_device,
++                allocator->frame_desc.dxgi_format, &support))
++                || !(support & D3D11_FORMAT_SUPPORT_TEXTURE2D))
++        {
++            WARN("D3D11 device cannot create %#x as a texture; falling back to B8G8R8A8_UNORM.\n",
++                    allocator->frame_desc.dxgi_format);
++            allocator->frame_desc.dxgi_format = DXGI_FORMAT_B8G8R8A8_UNORM;
++            if (!allocator->frame_desc.bindflags)
++                allocator->frame_desc.bindflags = D3D11_BIND_SHADER_RESOURCE;
++        }
++    }
++
+     sample_allocator_release_samples(allocator);
+ 
+     for (i = 0; i < sample_count; ++i)

@@ -8,13 +8,14 @@ cd "$(dirname "$0")"; source ./env.sh; set +e
 BK="$HOME/.local/winevideo/realapp-backup"
 PLUGDIR="$CX_LIB64/gstreamer-1.0"
 
-echo "=== restore winegstreamer.{dll,so} from backup ==="
+echo "=== restore winegstreamer.{dll,so} + mfplat.dll from backup ==="
 if [ -f "$BK/winegstreamer.dll" ] && [ -f "$BK/winegstreamer.so" ]; then
   cp "$BK/winegstreamer.dll" "$CX_WINE_PE/winegstreamer.dll" && echo "  restored winegstreamer.dll"
   cp "$BK/winegstreamer.so"  "$CX_WINE_UNIX/winegstreamer.so" && echo "  restored winegstreamer.so"
 else
   echo "  WARNING: no backup found at $BK — skipping dll/so restore"
 fi
+[ -f "$BK/mfplat.dll" ] && cp "$BK/mfplat.dll" "$CX_WINE_PE/mfplat.dll" && echo "  restored mfplat.dll"
 
 echo "=== remove added plugins + bundled deps ==="
 for f in "$PLUGDIR/libgstvpx.dylib" "$PLUGDIR/libgstmatroska.dylib"; do

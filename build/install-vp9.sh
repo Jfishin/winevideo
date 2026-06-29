@@ -34,6 +34,9 @@ echo "=== winegstreamer (VP9/AV1 caps) ==="
 cp "$WV_BUILD/dlls/winegstreamer/x86_64-windows/winegstreamer.dll" "$CX_WINE_PE/winegstreamer.dll"
 cp "$WV_BUILD/dlls/winegstreamer/winegstreamer.so" "$CX_WINE_UNIX/winegstreamer.so"; fix_so "$CX_WINE_UNIX/winegstreamer.so"
 
+echo "=== mfplat (BGRA fallback so DXMT/d3dmetal doesn't abort on NV12 video textures) ==="
+cp "$WV_BUILD/dlls/mfplat/x86_64-windows/mfplat.dll" "$CX_WINE_PE/mfplat.dll"
+
 echo "=== VP9 + matroska plugins ==="
 for p in vpx matroska; do cp "$DIST/libgst${p}.dylib" "$PLUGDIR/libgst${p}.dylib"; fix_so "$PLUGDIR/libgst${p}.dylib"; done
 
