@@ -49,6 +49,7 @@ SEL_BOTTLES=("$@")
 # the backup is always keyed off FINAL so restore.sh finds it.
 case "$APP" in *.app) STAGE=0; FINAL="$APP";; *) STAGE=1; FINAL="${APP}.app";; esac
 BK="${FINAL}.winevideo-backup"; mkdir -p "$BK"   # kept OUTSIDE the bundle (never affects the seal)
+FINAL_LIB64="$FINAL/Contents/SharedSupport/CrossOver/lib64"   # rpath target = the EVENTUAL .app path
 
 compute_paths(){
   SS="$APP/Contents/SharedSupport/CrossOver"
@@ -68,13 +69,23 @@ xattr -dr com.apple.quarantine "$APP" 2>/dev/null
 
 backup(){ local rel="$1" src="$2"; [ -f "$BK/$rel" ] || { [ -f "$src" ] && cp "$src" "$BK/$rel"; }; }
 
-# Repoint a .so/.dylib's @rpath gst/glib refs to the target app's lib64, compat-
-# rewrite framework (2414) versions to CX26.2 (2405/glib 7801), ad-hoc sign.
+# Repoint a .so/.dylib's @rpath gst/glib refs to the app's lib64, compat-rewrite
+# framework (2414) versions to CX26.2 (2405/glib 7801), ad-hoc sign.
+# IMPORTANT: the rpath must point to lib64 in the FINAL location, not where the file
+# physically sits during patching. When staging, files are patched in a folder that is
+# then renamed to .app — an absolute rpath to the folder would dangle after the rename.
+# So we add (1) a @loader_path-relative rpath (relocation-proof: survives the rename AND
+# the user later moving/renaming the app) and (2) the absolute final-.app lib64 as a
+# belt-and-suspenders fallback (this matches the proven pre-staging behavior).
 fix_so(){ local so="$1"
   for rp in $(otool -l "$so" 2>/dev/null | awk '/LC_RPATH/{getline;getline;print $2}'); do
     case "$rp" in *gst-framework*|*usr/local*|*homebrew*|*/opt/*) install_name_tool -delete_rpath "$rp" "$so" 2>/dev/null;; esac
   done
-  install_name_tool -add_rpath "$LIB64" "$so" 2>/dev/null
+  local sodir rel
+  sodir="$(cd "$(dirname "$so")" && pwd)"
+  rel="$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$SS/lib64" "$sodir" 2>/dev/null)"
+  [ -n "$rel" ] && install_name_tool -add_rpath "@loader_path/$rel" "$so" 2>/dev/null
+  install_name_tool -add_rpath "$FINAL_LIB64" "$so" 2>/dev/null
   [ -f "$COMPAT" ] && python3 "$COMPAT" "$so" >/dev/null 2>&1
   codesign -f -s - "$so" 2>/dev/null
 }
