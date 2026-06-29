@@ -103,14 +103,22 @@ final class Model: ObservableObject {
             let (rc1, out1) = self.shellOut("/usr/bin/osascript", ["-e", osa])
             self.append(out1.isEmpty ? "(app-file step finished, rc=\(rc1))" : out1)
             try? FileManager.default.removeItem(atPath: tmp)
-            // 2) BOTTLE registry as the USER — wine must NOT run as root.
-            var bargs = [script, "--bottle-only", app]; bargs += bottles
-            let (rc2, out2) = self.shellOut("/bin/bash", bargs)
-            self.append(out2)
+            // confirm the app files actually landed (the real success signal)
+            let soOK = (try? Data(contentsOf: URL(fileURLWithPath: app + "/Contents/SharedSupport/CrossOver/lib64/gstreamer-1.0/libgstvpx.dylib")))?.count ?? 0 > 0
+            // 2) BOTTLE registry as the USER — ONLY if bottles were selected (wine must NOT run as root).
+            var rc2: Int32 = 0
+            if !bottles.isEmpty {
+                var bargs = [script, "--bottle-only", app]; bargs += bottles
+                let (r, out2) = self.shellOut("/bin/bash", bargs); rc2 = r
+                self.append(out2)
+            } else {
+                self.append("(no bottles selected — app is patched; use “Scan bottles” + select to register VP9 per game bottle)")
+            }
             DispatchQueue.main.async {
                 self.busy = false; self.stage = ""
-                if rc1 == 0 && rc2 == 0 { self.append("\n✅ Done. Launch the patched app and play.") }
-                else { self.append("\n⚠️ Finished with issues (app rc=\(rc1), bottle rc=\(rc2)). See log above.") }
+                if soOK && rc2 == 0 { self.append("\n✅ APP PATCHED. Launch it and play. (rc app=\(rc1))") }
+                else if !soOK { self.append("\n❌ App files did NOT get installed (admin step rc=\(rc1)). If no password prompt appeared, the admin step was blocked — try again, or run the patcher from Terminal.") }
+                else { self.append("\n⚠️ App patched but a bottle step had issues (rc=\(rc2)).") }
             }
         }
     }
@@ -171,15 +179,19 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("winevideo — CrossOver 26.2 VP9 / video patcher").font(.title3).bold()
             DropZone(m: m)
-            HStack {
-                Button { m.scanBottles() } label: { Label("Scan bottles", systemImage: "magnifyingglass") }
-                    .disabled(m.busy)
-                Spacer()
-                Button { m.runPatch() } label: { Label("Patch", systemImage: "bandage") }
-                    .keyboardShortcut(.defaultAction).disabled(m.busy || m.dupAppPath == nil)
+            Text(m.dupAppPath == nil
+                 ? "Step 1 — drop your CrossOver.app above (it makes a copy)."
+                 : "Step 2 — click “Patch app” (asks for your password; this is what actually applies the fix).\nStep 3 (optional) — Scan bottles, tick the ones holding your games, then Patch app again.")
+                .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Button { m.runPatch() } label: { Label("Patch app", systemImage: "bandage.fill").frame(maxWidth: .infinity) }
+                    .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                    .disabled(m.busy || m.dupAppPath == nil)
+                Button { m.scanBottles() } label: { Label("Scan bottles (optional)", systemImage: "magnifyingglass") }
+                    .disabled(m.busy || m.dupAppPath == nil)
             }
             if !m.bottles.isEmpty {
-                Text("Bottles to patch (none checked = all):").font(.caption).foregroundColor(.secondary)
+                Text("Bottles to register VP9 in (tick the ones with your games, then Patch app):").font(.caption).foregroundColor(.secondary)
                 ScrollView {
                     VStack(alignment: .leading) {
                         ForEach(m.bottles, id: \.self) { b in
