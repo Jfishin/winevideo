@@ -1,0 +1,16 @@
+Windows Registry Editor Version 5.00
+
+;; Removes the WineGStreamer VP9 Video Decoder MFT + webm/mkv/msd byte-stream
+;; handlers. Apply with: wine regedit /S C:\vp9-mft-uninstall.reg
+;; ([-key] deletes the key; regedit /S is reliable where reg delete no-ops.)
+
+[-HKEY_LOCAL_MACHINE\Software\Classes\CLSID\{E3AAF548-C9A4-4C6E-234D-5ADA374B0000}]
+[-HKEY_LOCAL_MACHINE\Software\Classes\MediaFoundation\Transforms\e3aaf548-c9a4-4c6e-234d-5ada374b0000]
+[-HKEY_LOCAL_MACHINE\Software\Classes\MediaFoundation\Transforms\Categories\d6c02d4b-6833-45b4-971a-05a4b04bab91\e3aaf548-c9a4-4c6e-234d-5ada374b0000]
+[-HKEY_LOCAL_MACHINE\Software\Classes\Wow6432Node\CLSID\{E3AAF548-C9A4-4C6E-234D-5ADA374B0000}]
+[-HKEY_LOCAL_MACHINE\Software\Classes\Wow6432Node\MediaFoundation\Transforms\e3aaf548-c9a4-4c6e-234d-5ada374b0000]
+[-HKEY_LOCAL_MACHINE\Software\Classes\Wow6432Node\MediaFoundation\Transforms\Categories\d6c02d4b-6833-45b4-971a-05a4b04bab91\e3aaf548-c9a4-4c6e-234d-5ada374b0000]
+
+[-HKEY_LOCAL_MACHINE\Software\Microsoft\Windows Media Foundation\ByteStreamHandlers\.webm]
+[-HKEY_LOCAL_MACHINE\Software\Microsoft\Windows Media Foundation\ByteStreamHandlers\.mkv]
+[-HKEY_LOCAL_MACHINE\Software\Microsoft\Windows Media Foundation\ByteStreamHandlers\.msd]
