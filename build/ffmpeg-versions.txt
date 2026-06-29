@@ -1,0 +1,6 @@
+libavcodec major=61
+libavformat major=61
+libavutil major=59
+libswscale major=8
+# Matches CrossOver 26 bundled FFmpeg exactly: cxGE's libavcodec.61.19.101.dylib
+# is the same FFmpeg 7.1 build CrossOver ships (lib64/libavcodec.61.19.101.dylib).
