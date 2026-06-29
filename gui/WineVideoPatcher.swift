@@ -50,7 +50,8 @@ final class Model: ObservableObject {
                 DispatchQueue.main.async {
                     self.dupAppPath = dst.path
                     self.busy = false; self.stage = ""
-                    self.append("✅ Duplicate created. Now click “Scan bottles”, choose which to patch, then “Patch”.")
+                    self.append("✅ Duplicate created in your HOME ~/Applications folder:\n   \(dst.path)\n(revealing it in Finder). Now click “Scan bottles”, choose which to patch, then “Patch”.")
+                    NSWorkspace.shared.activateFileViewerSelecting([dst])
                 }
             } catch {
                 DispatchQueue.main.async {
