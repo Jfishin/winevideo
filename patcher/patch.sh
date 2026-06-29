@@ -90,17 +90,32 @@ fi   # end MODE != bottle (app-file section)
 
 # ---- per-bottle registry ----
 patch_bottle(){ local b="$1"; local dir="$BOTTLES/$b"
-  [ -d "$dir/system.reg" -o -f "$dir/system.reg" ] || { echo "    skip $b (no system.reg)"; return; }
+  [ -e "$dir/system.reg" ] || { echo "    skip $b (no system.reg)"; return; }
   echo "    bottle: $b"
   export CX_BOTTLE="$b" WINEDLLOVERRIDES="mscoree,mshtml=d"
   "$BIN/wineserver" -k 2>/dev/null
+  # A brand-new bottle's first wine call runs the (slow) auto-init; a real command
+  # forces it to complete. Then write the keys. CRUCIAL: Wine only flushes the
+  # registry to system.reg ~5s AFTER a change — so we must NOT hard-kill or check
+  # immediately. We write, then POLL system.reg (leaving wineserver alive) until the
+  # key appears (the flush), retrying the writes if it doesn't.
+  "$BIN/wine" cmd /c ver >/dev/null 2>&1
   cp "$PAY/reg/vp9-mft.reg" "$dir/drive_c/vp9-mft.reg" 2>/dev/null
-  "$BIN/wine" regedit /S 'C:\vp9-mft.reg' >/dev/null 2>&1
-  for ext in .webm .mkv .msd; do
-    "$BIN/wine" reg add "HKLM\\Software\\Microsoft\\Windows Media Foundation\\ByteStreamHandlers\\$ext" /v "$GBSH" /d "GStreamer Byte Stream Handler" /f >/dev/null 2>&1
+  local n=0
+  while [ $n -lt 3 ]; do
+    "$BIN/wine" regedit /S 'C:\vp9-mft.reg' >/dev/null 2>&1
+    for ext in .webm .mkv .msd; do
+      "$BIN/wine" reg add "HKLM\\Software\\Microsoft\\Windows Media Foundation\\ByteStreamHandlers\\$ext" /v "$GBSH" /d "GStreamer Byte Stream Handler" /f >/dev/null 2>&1
+    done
+    local w=0
+    while [ $w -lt 12 ]; do sleep 1; grep -qi "e3aaf548" "$dir/system.reg" 2>/dev/null && break; w=$((w+1)); done
+    grep -qi "e3aaf548" "$dir/system.reg" 2>/dev/null && break
+    n=$((n+1))
   done
-  "$BIN/wineserver" -k 2>/dev/null
   rm -f "$dir/drive_c/vp9-mft.reg" 2>/dev/null
+  "$BIN/wineserver" -k 2>/dev/null   # safe now: keys already flushed to disk
+  if grep -qi "e3aaf548" "$dir/system.reg" 2>/dev/null; then echo "      VP9 decoder MFT registered ✓"
+  else echo "      ⚠️ VP9 registration did NOT land in $b — run the patcher on this bottle again"; fi
 }
 
 if [ "$MODE" != app ]; then
