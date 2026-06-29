@@ -41,6 +41,12 @@ BK="$APP/.winevideo-backup"; mkdir -p "$BK"
 
 echo "=== winevideo VP9 patcher -> $APP ==="
 
+# Remove quarantine so macOS doesn't SIGKILL ("Killed: 9") the wine binaries in a
+# copied/downloaded bundle. NEVER codesign --deep the app: that strips CrossOver's
+# entitlements (JIT / executable memory) and Wine silently stops working. We only
+# ad-hoc sign the individual dylibs we add (see fix_so), preserving wine's signature.
+xattr -dr com.apple.quarantine "$APP" 2>/dev/null
+
 backup(){ local rel="$1" src="$2"; [ -f "$BK/$rel" ] || { [ -f "$src" ] && cp "$src" "$BK/$rel"; }; }
 
 # Repoint a .so/.dylib's @rpath gst/glib refs to the target app's lib64, compat-

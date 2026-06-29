@@ -36,27 +36,33 @@ final class Model: ObservableObject {
         // Put the duplicate in ~/Applications (user-writable). Writing INTO an app
         // bundle in /Applications is blocked for Finder-launched apps by macOS
         // "App Management" (TCC); the home Applications folder is not protected.
+        // Use a NO-SPACE name (spaces broke copy/verify) and `ditto` (a faithful
+        // copy that keeps wine runnable — clonefile copies did not), then strip
+        // quarantine so macOS won't SIGKILL the wine binaries.
         let userApps = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications")
         try? FileManager.default.createDirectory(at: userApps, withIntermediateDirectories: true)
-        let dst = userApps.appendingPathComponent("CrossOver winevideo.app")
+        let dst = userApps.appendingPathComponent("CrossOver-winevideo.app")
         DispatchQueue.main.async { self.busy = true; self.stage = "Duplicating CrossOver.app → ~/Applications … (this can take a minute)" }
-        append("Duplicating:\n  \(src.path)\n→ \(dst.path)")
+        append("Duplicating (ditto):\n  \(src.path)\n→ \(dst.path)")
         DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                if FileManager.default.fileExists(atPath: dst.path) {
-                    try FileManager.default.removeItem(at: dst)
-                }
-                try FileManager.default.copyItem(at: src, to: dst)
-                DispatchQueue.main.async {
+            func sh(_ tool: String, _ a: [String]) -> Int32 {
+                let pr = Process(); pr.executableURL = URL(fileURLWithPath: tool); pr.arguments = a
+                try? pr.run(); pr.waitUntilExit(); return pr.terminationStatus
+            }
+            if FileManager.default.fileExists(atPath: dst.path) {
+                _ = sh("/bin/rm", ["-rf", dst.path])
+            }
+            let rc = sh("/usr/bin/ditto", [src.path, dst.path])
+            _ = sh("/usr/bin/xattr", ["-dr", "com.apple.quarantine", dst.path])
+            let ok = rc == 0 && FileManager.default.fileExists(atPath: dst.appendingPathComponent("Contents/SharedSupport/CrossOver/bin/wine").path)
+            DispatchQueue.main.async {
+                self.busy = false; self.stage = ""
+                if ok {
                     self.dupAppPath = dst.path
-                    self.busy = false; self.stage = ""
                     self.append("✅ Duplicate created in your HOME ~/Applications folder:\n   \(dst.path)\n(revealing it in Finder). Now click “Scan bottles”, choose which to patch, then “Patch”.")
                     NSWorkspace.shared.activateFileViewerSelecting([dst])
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    self.busy = false; self.stage = ""
-                    self.append("❌ Duplicate failed: \(error.localizedDescription)")
+                } else {
+                    self.append("❌ Duplicate failed (ditto rc=\(rc)). Check free disk space.")
                 }
             }
         }
