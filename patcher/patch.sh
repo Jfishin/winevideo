@@ -146,16 +146,21 @@ if [ -n "$MISSING" ]; then
   exit 1
 fi
 
-# Modifying the bundle breaks its code-signature seal. Do NOT re-sign (that strips
-# Wine's entitlements). Instead DISABLE the seal by renaming it aside, so macOS
-# has no broken seal to reject ("damaged") — the nested binaries keep their own
-# embedded signatures + entitlements and run fine. Restore renames these back.
-echo "--- disable the bundle code-signature seal (so the modified app launches) ---"
+# Modifying the bundle breaks its original code-signature seal -> Finder refuses to
+# launch it ("damaged"). Re-seal the bundle ad-hoc WITHOUT --deep: this rebuilds a
+# valid CodeResources over the modified contents and ad-hoc-signs only the main
+# executable, while leaving the nested wine binaries' Developer-ID signatures + JIT
+# entitlements intact. (--deep would re-sign everything ad-hoc and STRIP those
+# entitlements -> wine silently stops working. Renaming the seal aside also fails:
+# the main exec's signature then references a missing seal -> still "damaged".)
+echo "--- re-seal the bundle ad-hoc so it launches (keeps wine entitlements) ---"
+# clean up any seal we may have renamed aside in older runs
 for s in CodeResources _CodeSignature; do
-  if [ -e "$APP/Contents/$s" ]; then
-    mv -f "$APP/Contents/$s" "$APP/Contents/${s}_disabled" 2>/dev/null && echo "    disabled Contents/$s"
-  fi
+  [ -e "$APP/Contents/${s}_disabled" ] && [ ! -e "$APP/Contents/$s" ] && mv -f "$APP/Contents/${s}_disabled" "$APP/Contents/$s" 2>/dev/null
+  rm -rf "$APP/Contents/${s}_disabled" 2>/dev/null
 done
+if codesign --force --sign - "$APP" 2>/tmp/wv_seal.err; then echo "    re-sealed ✓"
+else echo "    ⚠️ re-seal failed: $(grep -iE 'error|unsealed' /tmp/wv_seal.err | head -1)"; fi
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null
 
 echo "=== DONE. Patched $APP (originals backed up in $BK). Restore with restore.sh ==="

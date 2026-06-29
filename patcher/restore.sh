@@ -17,15 +17,19 @@ WINE_PE="$SS/lib/wine/x86_64-windows"; WINE_UNIX="$SS/lib/wine/x86_64-unix"; BIN
 BK="${APP}.winevideo-backup"; [ -d "$BK" ] || BK="$APP/.winevideo-backup"   # new (sibling) or legacy (inside)
 
 echo "=== restore $APP to stock ==="
-# re-enable the original code-signature seal we renamed aside
+# legacy cleanup: older versions renamed the seal aside
 for s in CodeResources _CodeSignature; do
-  [ -e "$APP/Contents/${s}_disabled" ] && mv -f "$APP/Contents/${s}_disabled" "$APP/Contents/$s" && echo "  re-enabled Contents/$s"
+  [ -e "$APP/Contents/${s}_disabled" ] && [ ! -e "$APP/Contents/$s" ] && mv -f "$APP/Contents/${s}_disabled" "$APP/Contents/$s" 2>/dev/null
+  rm -rf "$APP/Contents/${s}_disabled" 2>/dev/null
 done
 [ -f "$BK/winegstreamer.dll" ] && cp "$BK/winegstreamer.dll" "$WINE_PE/winegstreamer.dll" && echo "  winegstreamer.dll"
 [ -f "$BK/winegstreamer.so" ]  && cp "$BK/winegstreamer.so"  "$WINE_UNIX/winegstreamer.so" && echo "  winegstreamer.so"
 [ -f "$BK/mfplat.dll" ]        && cp "$BK/mfplat.dll"        "$WINE_PE/mfplat.dll" && echo "  mfplat.dll"
 # remove the plugins + deps we added (only if they weren't part of the stock app)
 rm -f "$PLUGDIR/libgstvpx.dylib" "$PLUGDIR/libgstmatroska.dylib" && echo "  removed vpx/matroska plugins"
+# re-seal the (now stock-content) bundle ad-hoc so it still launches cleanly
+codesign --force --sign - "$APP" 2>/dev/null && echo "  re-sealed (ad-hoc)"
+xattr -dr com.apple.quarantine "$APP" 2>/dev/null
 
 patch_bottle_restore(){ local b="$1"; local dir="$BOTTLES/$b"
   [ -e "$dir/system.reg" ] || return
