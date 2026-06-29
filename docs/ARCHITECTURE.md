@@ -106,10 +106,13 @@ several macOS protections:
 - **Strip quarantine.** A copied/downloaded bundle carries `com.apple.quarantine`;
   Gatekeeper then `SIGKILL`s the wine binaries (`Killed: 9`). Remove it with
   `xattr -dr com.apple.quarantine`.
-- **App Management (TCC).** A GUI app cannot write inside another `.app` bundle without
-  the App Management privilege; the writes are silently denied. The GUI runs the
-  app-file step elevated (`osascript … with administrator privileges`); a terminal with
-  Full Disk Access can write directly.
+- **App Management (TCC).** A process without Full Disk Access (or the App-Management
+  privilege) cannot write inside another app's `.app` bundle — and **root via an admin
+  prompt does not bypass this**. The patcher sidesteps it by **staging**: it copies
+  CrossOver to a plain **folder** (not a `.app`), patches and ad-hoc re-seals it there as
+  the normal user (App Management only guards real `.app` bundles), then renames the folder
+  to `.app`. No elevation or special permission is required. (A terminal that *does* have
+  Full Disk Access can alternatively patch a `.app` in place.)
 - **Re-seal without `--deep`.** Modifying the bundle invalidates its code-signature seal,
   so Finder reports "damaged." Re-sign with `codesign --force --sign -` **without**
   `--deep`: this rebuilds a valid `CodeResources` over the modified contents and ad-hoc

@@ -3,7 +3,7 @@
 #  winevideo VP9 patcher for CrossOver 26.2  (drag-and-drop friendly)
 # =============================================================================
 #  Adds real VP9 (+VP8/WebM/Matroska) video support to a CrossOver 26.2 app and
-#  fixes the d3dmetal/DXMT "NV12 video texture" crash, so Media-Foundation video
+#  fixes the d3dmetal "NV12 video texture" crash, so Media-Foundation video
 #  games (e.g. Ninja Gaiden 4) play their cutscenes.
 #
 #  USAGE:
@@ -11,6 +11,12 @@
 #    2. Run:  ./patch.sh /path/to/CrossOver-copy.app  [bottle ...]
 #       - no bottle args  -> patches the APP + EVERY existing bottle
 #       - bottle args      -> patches the APP + only those bottles
+#
+#  STAGING (no admin / no Full Disk Access needed): if the path you pass does
+#  NOT end in ".app" (e.g. ".../CrossOver-winevideo"), it is treated as a plain
+#  staging folder. macOS "App Management" only protects real .app bundles, so a
+#  folder can be patched + signed as the normal user with no elevation; this
+#  script then renames it to "<name>.app" at the very end. The GUI uses this.
 #
 #  The APP-level DLLs apply to all bottles. The per-bottle registry (VP9 decoder
 #  + .webm/.mkv/.msd handlers) is required and is stamped into each bottle.
@@ -25,33 +31,39 @@ COMPAT="$PAY/patch_macho_compat.py"
 GBSH='{317df618-5e5a-468a-9f15-d827a9a08162}'   # CLSID_GStreamerByteStreamHandler
 BOTTLES="$HOME/Library/Application Support/CrossOver/Bottles"
 
-# Optional mode flag (must be first). The GUI runs the app-file part as root via
-# an admin prompt (to bypass macOS App-Management TCC), and the bottle part as the
-# user (wine must NOT run as root). No flag = do everything (terminal use).
+# Optional mode flag (must be first). Kept for compatibility / CLI:
+#   --app-only    = only patch the app files (+ finalize/rename)
+#   --bottle-only = only register the per-bottle registry (app must already be .app)
+# The GUI uses neither: it passes a staging folder and lets MODE=all do everything.
 MODE=all
 case "${1:-}" in --app-only) MODE=app; shift;; --bottle-only) MODE=bottle; shift;; esac
 
 APP="${1:-}"
-[ -z "$APP" ] && { echo "usage: $0 [--app-only|--bottle-only] /path/to/CrossOver.app [bottle ...]"; exit 2; }
+[ -z "$APP" ] && { echo "usage: $0 [--app-only|--bottle-only] /path/to/CrossOver(.app) [bottle ...]"; exit 2; }
 [ -d "$APP/Contents/SharedSupport/CrossOver" ] || { echo "ERROR: not a CrossOver app: $APP"; exit 2; }
 shift || true
 SEL_BOTTLES=("$@")
 
-SS="$APP/Contents/SharedSupport/CrossOver"
-LIB64="$SS/lib64"
-PLUGDIR="$LIB64/gstreamer-1.0"
-WINE_PE="$SS/lib/wine/x86_64-windows"
-WINE_UNIX="$SS/lib/wine/x86_64-unix"
-BIN="$SS/bin"
-# keep the backup OUTSIDE the bundle so it never interferes with the bundle seal
-BK="${APP}.winevideo-backup"; mkdir -p "$BK"
+# Staging detection: a path without a .app extension is a staging folder we will
+# rename to <name>.app after patching+signing. FINAL is the eventual .app path;
+# the backup is always keyed off FINAL so restore.sh finds it.
+case "$APP" in *.app) STAGE=0; FINAL="$APP";; *) STAGE=1; FINAL="${APP}.app";; esac
+BK="${FINAL}.winevideo-backup"; mkdir -p "$BK"   # kept OUTSIDE the bundle (never affects the seal)
 
-echo "=== winevideo VP9 patcher -> $APP ==="
+compute_paths(){
+  SS="$APP/Contents/SharedSupport/CrossOver"
+  LIB64="$SS/lib64"; PLUGDIR="$LIB64/gstreamer-1.0"
+  WINE_PE="$SS/lib/wine/x86_64-windows"; WINE_UNIX="$SS/lib/wine/x86_64-unix"; BIN="$SS/bin"
+}
+compute_paths
+
+echo "=== winevideo VP9 patcher -> $FINAL ==="
+[ "$STAGE" = 1 ] && echo "    (staging as a folder, no elevation needed; will rename to .app at the end)"
 
 # Remove quarantine so macOS doesn't SIGKILL ("Killed: 9") the wine binaries in a
 # copied/downloaded bundle. NEVER codesign --deep the app: that strips CrossOver's
 # entitlements (JIT / executable memory) and Wine silently stops working. We only
-# ad-hoc sign the individual dylibs we add (see fix_so), preserving wine's signature.
+# ad-hoc sign the individual dylibs we add (fix_so) + re-seal the top bundle.
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null
 
 backup(){ local rel="$1" src="$2"; [ -f "$BK/$rel" ] || { [ -f "$src" ] && cp "$src" "$BK/$rel"; }; }
@@ -67,28 +79,89 @@ fix_so(){ local so="$1"
   codesign -f -s - "$so" 2>/dev/null
 }
 
+# ---------------------------------------------------------------------------
+#  APP FILES + FINALIZE (verify, re-seal, rename staging folder -> .app)
+# ---------------------------------------------------------------------------
 if [ "$MODE" != bottle ]; then
-echo "--- app: winegstreamer (VP9/AV1 caps) + mfplat (NV12->BGRA fallback) ---"
-backup "winegstreamer.dll" "$WINE_PE/winegstreamer.dll"
-backup "winegstreamer.so"  "$WINE_UNIX/winegstreamer.so"
-backup "mfplat.dll"        "$WINE_PE/mfplat.dll"
-cp "$PAY/wine-pe/winegstreamer.dll" "$WINE_PE/winegstreamer.dll"
-cp "$PAY/wine-pe/mfplat.dll"        "$WINE_PE/mfplat.dll"
-cp "$PAY/wine-unix/winegstreamer.so" "$WINE_UNIX/winegstreamer.so"; fix_so "$WINE_UNIX/winegstreamer.so"
+  echo "--- app: winegstreamer (VP9/AV1 caps) + mfplat (NV12->BGRA fallback) ---"
+  backup "winegstreamer.dll" "$WINE_PE/winegstreamer.dll"
+  backup "winegstreamer.so"  "$WINE_UNIX/winegstreamer.so"
+  backup "mfplat.dll"        "$WINE_PE/mfplat.dll"
+  cp "$PAY/wine-pe/winegstreamer.dll" "$WINE_PE/winegstreamer.dll"
+  cp "$PAY/wine-pe/mfplat.dll"        "$WINE_PE/mfplat.dll"
+  cp "$PAY/wine-unix/winegstreamer.so" "$WINE_UNIX/winegstreamer.so"; fix_so "$WINE_UNIX/winegstreamer.so"
 
-echo "--- app: VP9 + matroska GStreamer plugins + runtime deps ---"
-for p in vpx matroska; do
-  cp "$PAY/lib64/gstreamer-1.0/libgst${p}.dylib" "$PLUGDIR/libgst${p}.dylib"; fix_so "$PLUGDIR/libgst${p}.dylib"
-done
-for d in libvpx.9.dylib liborc-0.4.0.dylib libz.1.dylib libbz2.1.dylib; do
-  [ -f "$LIB64/$d" ] || cp "$PAY/lib64/$d" "$LIB64/$d"   # don't clobber the app's own
-done
+  # Guard: only patch a real CrossOver 26.2 layout. CrossOver Preview / other builds
+  # have no lib64/gstreamer-1.0 and ship a different Wine/GStreamer ABI, so our
+  # binaries won't load — fail clearly instead of producing a broken app.
+  if [ ! -d "$PLUGDIR" ]; then
+    VER="$(defaults read "$APP/Contents/Info" CFBundleShortVersionString 2>/dev/null)"
+    echo ""
+    echo "❌ Unsupported CrossOver build${VER:+ ($VER)} — no $(basename "$LIB64")/gstreamer-1.0 plugin dir."
+    echo "   winevideo supports the stable CrossOver 26.2 release only (not CrossOver Preview)."
+    exit 3
+  fi
 
-echo "--- app: enable applemedia (VideoToolbox h264/hevc), if present disabled ---"
-[ -f "$PLUGDIR/libgstapplemedia.dylib.disabled" ] && cp "$PLUGDIR/libgstapplemedia.dylib.disabled" "$PLUGDIR/libgstapplemedia.dylib"
-fi   # end MODE != bottle (app-file section)
+  echo "--- app: VP9 + matroska GStreamer plugins + runtime deps ---"
+  mkdir -p "$PLUGDIR"   # safety no-op once the guard above has passed
+  for p in vpx matroska; do
+    cp "$PAY/lib64/gstreamer-1.0/libgst${p}.dylib" "$PLUGDIR/libgst${p}.dylib"; fix_so "$PLUGDIR/libgst${p}.dylib"
+  done
+  for d in libvpx.9.dylib liborc-0.4.0.dylib libz.1.dylib libbz2.1.dylib; do
+    [ -f "$LIB64/$d" ] || cp "$PAY/lib64/$d" "$LIB64/$d"   # don't clobber the app's own
+  done
 
-# ---- per-bottle registry ----
+  echo "--- app: enable applemedia (VideoToolbox h264/hevc), if present disabled ---"
+  [ -f "$PLUGDIR/libgstapplemedia.dylib.disabled" ] && cp "$PLUGDIR/libgstapplemedia.dylib.disabled" "$PLUGDIR/libgstapplemedia.dylib"
+
+  # ---- verify the app files actually landed ----
+  MISSING=""
+  for f in "$WINE_PE/winegstreamer.dll" "$WINE_PE/mfplat.dll" "$WINE_UNIX/winegstreamer.so" \
+           "$PLUGDIR/libgstvpx.dylib" "$PLUGDIR/libgstmatroska.dylib" "$LIB64/libvpx.9.dylib"; do
+    [ -f "$f" ] || MISSING="$MISSING\n    - $f"
+  done
+  if [ -n "$MISSING" ]; then
+    echo ""
+    echo "❌ PATCH INCOMPLETE — these files did not get written:$MISSING"
+    echo "   Check free disk space, and that the payload next to this script is intact."
+    echo "   (If you patched a path ending in .app directly, macOS App Management may be"
+    echo "    blocking writes — pass a folder path without the .app extension instead, or"
+    echo "    grant Full Disk Access and re-run.)"
+    exit 1
+  fi
+
+  # Modifying the bundle breaks its original code-signature seal -> Finder refuses to
+  # launch it ("damaged"). Re-seal ad-hoc WITHOUT --deep: rebuilds a valid
+  # CodeResources over the modified contents and ad-hoc-signs only the main
+  # executable, while the nested wine binaries keep their Developer-ID signatures +
+  # JIT entitlements. (--deep would re-sign everything ad-hoc and STRIP those
+  # entitlements -> wine silently stops working.) Do this WHILE it is still a plain
+  # folder (when staging) so App Management can't block the codesign either.
+  echo "--- re-seal the bundle ad-hoc so it launches (keeps wine entitlements) ---"
+  for s in CodeResources _CodeSignature; do   # clean up any seal renamed aside by old runs
+    [ -e "$APP/Contents/${s}_disabled" ] && [ ! -e "$APP/Contents/$s" ] && mv -f "$APP/Contents/${s}_disabled" "$APP/Contents/$s" 2>/dev/null
+    rm -rf "$APP/Contents/${s}_disabled" 2>/dev/null
+  done
+  SEAL_ERR="$(mktemp -t wv_seal 2>/dev/null || echo "$BK/.seal.err")"
+  if codesign --force --sign - "$APP" 2>"$SEAL_ERR"; then echo "    re-sealed ✓"
+  else echo "    ⚠️ re-seal failed: $(grep -iE 'error|unsealed' "$SEAL_ERR" 2>/dev/null | head -1)"; fi
+  rm -f "$SEAL_ERR" 2>/dev/null
+
+  # Staging: now that it is patched + signed as a folder, rename to .app.
+  if [ "$STAGE" = 1 ]; then
+    rm -rf "$FINAL" 2>/dev/null
+    mv "$APP" "$FINAL"
+    APP="$FINAL"; STAGE=0; compute_paths
+    echo "    renamed to $(basename "$FINAL") ✓"
+  fi
+  xattr -dr com.apple.quarantine "$APP" 2>/dev/null
+fi
+
+if [ "$MODE" = app ]; then echo "=== app patched: $APP (originals in $BK) ==="; exit 0; fi
+
+# ---------------------------------------------------------------------------
+#  PER-BOTTLE REGISTRY  (runs wine from the final .app; writes ~/Library only)
+# ---------------------------------------------------------------------------
 patch_bottle(){ local b="$1"; local dir="$BOTTLES/$b"
   [ -e "$dir/system.reg" ] || { echo "    skip $b (no system.reg)"; return; }
   echo "    bottle: $b"
@@ -118,7 +191,6 @@ patch_bottle(){ local b="$1"; local dir="$BOTTLES/$b"
   else echo "      ⚠️ VP9 registration did NOT land in $b — run the patcher on this bottle again"; fi
 }
 
-if [ "$MODE" != app ]; then
 echo "--- bottles: register VP9 decoder MFT + webm/mkv/msd handlers ---"
 if [ "${#SEL_BOTTLES[@]}" -gt 0 ]; then
   for b in "${SEL_BOTTLES[@]}"; do patch_bottle "$b"; done
@@ -127,40 +199,6 @@ else
 fi
 # refresh gstreamer plugin registry so the new plugins are scanned
 find "$HOME/Library/Application Support/CrossOver" -iname "*gstreamer*registry*x86_64*" -delete 2>/dev/null
-fi   # end MODE != app (bottle section)
 
 if [ "$MODE" = bottle ]; then echo "=== bottle registration done ($APP) ==="; exit 0; fi
-
-# ---- verify the app files actually landed (catches silent TCC/permission denials) ----
-MISSING=""
-for f in "$WINE_PE/winegstreamer.dll" "$WINE_PE/mfplat.dll" "$WINE_UNIX/winegstreamer.so" \
-         "$PLUGDIR/libgstvpx.dylib" "$PLUGDIR/libgstmatroska.dylib" "$LIB64/libvpx.9.dylib"; do
-  [ -f "$f" ] || MISSING="$MISSING\n    - $f"
-done
-if [ -n "$MISSING" ]; then
-  echo ""
-  echo "❌ PATCH INCOMPLETE — these files did not get written:$MISSING"
-  echo "   This is almost always macOS blocking writes into the app bundle."
-  echo "   Fix: keep the patched app in your HOME ~/Applications folder (not /Applications),"
-  echo "   or grant this app Full Disk Access in System Settings ▸ Privacy & Security, then re-run."
-  exit 1
-fi
-
-# Modifying the bundle breaks its original code-signature seal -> Finder refuses to
-# launch it ("damaged"). Re-seal the bundle ad-hoc WITHOUT --deep: this rebuilds a
-# valid CodeResources over the modified contents and ad-hoc-signs only the main
-# executable, while leaving the nested wine binaries' Developer-ID signatures + JIT
-# entitlements intact. (--deep would re-sign everything ad-hoc and STRIP those
-# entitlements -> wine silently stops working. Renaming the seal aside also fails:
-# the main exec's signature then references a missing seal -> still "damaged".)
-echo "--- re-seal the bundle ad-hoc so it launches (keeps wine entitlements) ---"
-# clean up any seal we may have renamed aside in older runs
-for s in CodeResources _CodeSignature; do
-  [ -e "$APP/Contents/${s}_disabled" ] && [ ! -e "$APP/Contents/$s" ] && mv -f "$APP/Contents/${s}_disabled" "$APP/Contents/$s" 2>/dev/null
-  rm -rf "$APP/Contents/${s}_disabled" 2>/dev/null
-done
-if codesign --force --sign - "$APP" 2>/tmp/wv_seal.err; then echo "    re-sealed ✓"
-else echo "    ⚠️ re-seal failed: $(grep -iE 'error|unsealed' /tmp/wv_seal.err | head -1)"; fi
-xattr -dr com.apple.quarantine "$APP" 2>/dev/null
-
 echo "=== DONE. Patched $APP (originals backed up in $BK). Restore with restore.sh ==="

@@ -21,11 +21,12 @@ GStreamer 1.24.5 and are version-specific.
 
 Open `../gui/winevideo Patcher.app` (build it with `../gui/build-app.sh` if needed):
 
-1. Drag your `CrossOver.app` in → it duplicates to `~/Applications/CrossOver-winevideo.app`.
+1. Drag your `CrossOver.app` in → it copies it to `~/Applications/CrossOver-winevideo.app`
+   (a copy only — nothing is patched yet).
 2. Click **Scan bottles** and tick the bottle you play your VP9 game in (required — games
    gate on the per-bottle VP9 decoder MFT, so the bottle must be patched too).
-3. Click **Patch app** and authenticate (writing inside an app bundle needs elevation).
-   This patches the app **and** the selected bottle(s) together.
+3. Click **Patch**. This patches the app **and** the selected bottle(s) together — no
+   password or special permissions needed.
 4. Launch `~/Applications/CrossOver-winevideo.app`.
 
 Clear quarantine on the unsigned patcher app before first launch:
@@ -41,10 +42,15 @@ Patch a **copy** of CrossOver:
 ./patch.sh /full/path/to/CrossOver-copy.app SteamBottle  # app + only this bottle
 ```
 
-`patch.sh` also accepts `--app-only` / `--bottle-only` to run a single phase (the GUI
-uses these to run the app step elevated and the bottle step as the user).
+Pass a path **without** a `.app` extension (e.g. `…/CrossOver-winevideo`) to stage it as a
+plain folder: it is patched + re-sealed as the normal user (no admin / Full Disk Access —
+macOS App Management only guards real `.app` bundles) and renamed to `.app` at the end.
+The GUI uses this. `patch.sh` also accepts `--app-only` / `--bottle-only` to run a single
+phase.
 
 After patching, the app is de-quarantined and re-sealed (ad-hoc) so it launches normally.
+Only stable **CrossOver 26.2** is supported; the patcher refuses other builds (incl.
+CrossOver Preview, which has a different layout).
 
 ### Bottles
 

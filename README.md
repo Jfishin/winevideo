@@ -40,8 +40,9 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technical breakdow
 
 ## Requirements
 
-- **CrossOver 26.2**, Apple Silicon (macOS). The binaries are built against 26.2's
-  Wine 11.0 / GStreamer 1.24.5 and are version-specific.
+- **CrossOver 26.2** (the stable release — **not** CrossOver Preview), Apple Silicon
+  (macOS). The binaries are built against 26.2's Wine 11.0 / GStreamer 1.24.5 and are
+  version-specific; the patcher refuses other builds.
 - Use the **d3dmetal** graphics backend (the only one that runs most D3D12 titles).
 
 ## Install
@@ -52,14 +53,13 @@ Patch a **copy** of CrossOver — never the original.
 
 Open `gui/winevideo Patcher.app`:
 
-1. Drag your `CrossOver.app` onto the window — it duplicates to
-   `~/Applications/CrossOver-winevideo.app`.
+1. Drag your `CrossOver.app` onto the window — it copies it to
+   `~/Applications/CrossOver-winevideo.app` (a copy only — nothing is patched yet).
 2. Click **Scan bottles** and tick the bottle you play your VP9 game (e.g. Ninja Gaiden 4)
    in. Games gate on the VP9 decoder MFT, which is registered *per bottle* — so the bottle
    you play in must be patched, not just the app.
-3. Click **Patch app** and authenticate at the prompt (writing inside an app bundle
-   requires elevation on macOS). This patches the app **and** the selected bottle(s) in one
-   step.
+3. Click **Patch**. This patches the app **and** the selected bottle(s) in one step — no
+   password or special permissions required.
 4. Launch `~/Applications/CrossOver-winevideo.app` and run the game.
 
 The app is unsigned; clear quarantine before first launch:
@@ -82,10 +82,12 @@ Revert with `patcher/restore.sh /path/to/CrossOver-copy.app [bottle ...]`.
 
 The patcher copies prebuilt artifacts (`patcher/payload/`) into the app, ad-hoc signs the
 added libraries, registers the VP9 decoder MFT and `.webm`/`.mkv`/`.msd` byte-stream
-handlers in the bottle registry, then re-seals the bundle. The macOS-specific steps
-(copy with `ditto`, strip quarantine, ad-hoc re-seal **without** `--deep` to preserve
-Wine's entitlements, and wait for Wine's registry flush) are documented in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+handlers in the bottle registry, then re-seals the bundle. To avoid needing an admin
+password or Full Disk Access, it stages the copy as a plain **folder** (macOS App
+Management only guards real `.app` bundles), patches and re-seals it there as the normal
+user, then renames it to `.app`. The macOS-specific steps (copy with `ditto`, strip
+quarantine, ad-hoc re-seal **without** `--deep` to preserve Wine's entitlements, and wait
+for Wine's registry flush) are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Repository layout
 

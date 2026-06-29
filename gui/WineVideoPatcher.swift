@@ -1,6 +1,14 @@
 // WineVideoPatcher — small drag-and-drop GUI to patch a CrossOver 26.2 app with
-// the winevideo VP9/video fix. Drop a CrossOver.app, it duplicates it to
-// "CrossOver winevideo.app", you scan & pick bottles, then Patch.
+// the winevideo VP9/video fix.
+//
+// Flow (no admin password, no special permissions):
+//   1. Drop a CrossOver.app -> it is DUPLICATED to a staging FOLDER
+//      "~/Applications/CrossOver-winevideo" (note: not a .app yet).
+//   2. Scan bottles, tick the bottle your game runs in.
+//   3. Patch -> patch.sh patches + signs the folder as the normal user (macOS
+//      "App Management" only protects real .app bundles, so a folder is writable
+//      without elevation), renames it to "CrossOver-winevideo.app", and registers
+//      VP9 in the selected bottle(s) — all in one step.
 //
 // The actual patching is delegated to the bundled patch.sh + payload (in
 // Contents/Resources), so the GUI is just a thin front-end.
@@ -10,7 +18,8 @@ import AppKit
 import UniformTypeIdentifiers
 
 final class Model: ObservableObject {
-    @Published var dupAppPath: String? = nil      // the duplicated "CrossOver winevideo.app"
+    @Published var stagePath: String? = nil       // the staging folder "~/Applications/CrossOver-winevideo"
+    @Published var patched: Bool = false          // true once the .app exists (patched)
     @Published var bottles: [String] = []
     @Published var selected: Set<String> = []
     @Published var log: String = "Drop a CrossOver.app above to begin.\n"
@@ -21,48 +30,48 @@ final class Model: ObservableObject {
         (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support/CrossOver/Bottles")
     }
     var resDir: String { Bundle.main.resourcePath ?? "." }
+    var finalApp: String? { stagePath.map { $0 + ".app" } }
 
     func append(_ s: String) {
         DispatchQueue.main.async { self.log += s.hasSuffix("\n") ? s : s + "\n" }
     }
 
-    // Duplicate the dropped CrossOver.app -> "CrossOver winevideo.app" next to it.
+    // Duplicate the dropped CrossOver.app -> a STAGING FOLDER (no .app extension)
+    // in ~/Applications. patch.sh later renames it to .app. Using a folder (not a
+    // .app) is what lets us patch with no admin prompt: macOS App Management only
+    // guards real .app bundles.
     func duplicate(from src: URL) {
         guard src.pathExtension == "app",
-              FileManager.default.fileExists(atPath: src.appendingPathComponent("Contents/SharedSupport/CrossOver").path) else {
-            append("⚠️ That doesn't look like a CrossOver app (no Contents/SharedSupport/CrossOver).")
+              FileManager.default.fileExists(atPath: src.appendingPathComponent("Contents/SharedSupport/CrossOver/bin/wine").path) else {
+            append("⚠️ That doesn't look like a CrossOver app (no Contents/SharedSupport/CrossOver/bin/wine).")
             return
         }
-        // Put the duplicate in ~/Applications (user-writable). Writing INTO an app
-        // bundle in /Applications is blocked for Finder-launched apps by macOS
-        // "App Management" (TCC); the home Applications folder is not protected.
-        // Use a NO-SPACE name (spaces broke copy/verify) and `ditto` (a faithful
-        // copy that keeps wine runnable — clonefile copies did not), then strip
-        // quarantine so macOS won't SIGKILL the wine binaries.
+        // ~/Applications is user-writable; /Applications is not (for Finder-launched apps).
+        // Use a NO-SPACE name (spaces broke copy/verify) and `ditto` (a faithful copy
+        // that keeps wine runnable — clonefile copies did not).
         let userApps = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications")
         try? FileManager.default.createDirectory(at: userApps, withIntermediateDirectories: true)
-        let dst = userApps.appendingPathComponent("CrossOver-winevideo.app")
-        DispatchQueue.main.async { self.busy = true; self.stage = "Duplicating CrossOver.app → ~/Applications … (this can take a minute)" }
-        append("Duplicating (ditto):\n  \(src.path)\n→ \(dst.path)")
+        let stageDir = userApps.appendingPathComponent("CrossOver-winevideo").path        // folder
+        let appDir   = stageDir + ".app"                                                  // eventual .app
+        DispatchQueue.main.async { self.busy = true; self.stage = "Copying CrossOver … (this can take a minute)" }
+        append("Copying (ditto):\n  \(src.path)\n→ \(stageDir)")
         DispatchQueue.global(qos: .userInitiated).async {
             func sh(_ tool: String, _ a: [String]) -> Int32 {
                 let pr = Process(); pr.executableURL = URL(fileURLWithPath: tool); pr.arguments = a
                 try? pr.run(); pr.waitUntilExit(); return pr.terminationStatus
             }
-            if FileManager.default.fileExists(atPath: dst.path) {
-                _ = sh("/bin/rm", ["-rf", dst.path])
-            }
-            let rc = sh("/usr/bin/ditto", [src.path, dst.path])
-            _ = sh("/usr/bin/xattr", ["-dr", "com.apple.quarantine", dst.path])
-            let ok = rc == 0 && FileManager.default.fileExists(atPath: dst.appendingPathComponent("Contents/SharedSupport/CrossOver/bin/wine").path)
+            // clear any previous staging folder AND previously-patched .app
+            for p in [stageDir, appDir] where FileManager.default.fileExists(atPath: p) { _ = sh("/bin/rm", ["-rf", p]) }
+            let rc = sh("/usr/bin/ditto", [src.path, stageDir])
+            _ = sh("/usr/bin/xattr", ["-dr", "com.apple.quarantine", stageDir])
+            let ok = rc == 0 && FileManager.default.fileExists(atPath: stageDir + "/Contents/SharedSupport/CrossOver/bin/wine")
             DispatchQueue.main.async {
                 self.busy = false; self.stage = ""
                 if ok {
-                    self.dupAppPath = dst.path
-                    self.append("✅ Duplicate created in your HOME ~/Applications folder:\n   \(dst.path)\n(revealing it in Finder). Now click “Scan bottles”, choose which to patch, then “Patch”.")
-                    NSWorkspace.shared.activateFileViewerSelecting([dst])
+                    self.stagePath = stageDir; self.patched = false
+                    self.append("✅ Copied — but NOT patched yet.\n   Next: click “Scan bottles”, tick the bottle your game runs in, then click “Patch”.")
                 } else {
-                    self.append("❌ Duplicate failed (ditto rc=\(rc)). Check free disk space.")
+                    self.append("❌ Copy failed (ditto rc=\(rc)). Check free disk space.")
                 }
             }
         }
@@ -85,54 +94,53 @@ final class Model: ObservableObject {
     }
 
     func runPatch() {
-        guard let app = dupAppPath else { append("Duplicate an app first."); return }
+        guard let stage = stagePath, let app = finalApp else { append("Duplicate an app first (drag CrossOver.app above)."); return }
         let script = (resDir as NSString).appendingPathComponent("patch.sh")
         guard FileManager.default.fileExists(atPath: script) else { append("❌ bundled patch.sh missing"); return }
+        let fm = FileManager.default
+        let stageExists = fm.fileExists(atPath: stage + "/Contents/SharedSupport/CrossOver/bin/wine")  // not yet patched
+        let appExists   = fm.fileExists(atPath: app   + "/Contents/SharedSupport/CrossOver/bin/wine")  // already patched
         let bottles = Array(selected)
-        DispatchQueue.main.async { self.busy = true; self.stage = "Patching… (you'll be asked for your password once)" }
-        append("\n=== Patching ===\n\(app)\nbottles: \(bottles.isEmpty ? "(all)" : bottles.sorted().joined(separator: ", "))")
+
+        // Already patched + nothing new selected -> guide instead of redoing.
+        if !stageExists && appExists && bottles.isEmpty {
+            append("Already patched. To patch a bottle: click “Scan bottles”, tick it, then “Patch”.")
+            return
+        }
+
+        DispatchQueue.main.async { self.busy = true; self.stage = "Patching…" }
+        append("\n=== Patching ===\nbottles: \(bottles.isEmpty ? "(none selected)" : bottles.sorted().joined(separator: ", "))")
         DispatchQueue.global(qos: .userInitiated).async {
-            // 1) APP files as ADMIN — macOS blocks a GUI app from modifying another
-            //    .app's contents (App Management TCC); an admin prompt bypasses that.
-            //    Wrap in a temp script so spaced paths don't fight AppleScript escaping.
-            let tmp = "/tmp/winevideo-apppatch.sh"
-            let body = "#!/bin/bash\nexport PATH=/usr/bin:/bin:/usr/sbin:/sbin\nexec /bin/bash \"\(script)\" --app-only \"\(app)\"\n"
-            try? body.write(toFile: tmp, atomically: true, encoding: .utf8)
-            _ = self.shell("/bin/chmod", ["+x", tmp])
-            let osa = "do shell script \"/bin/bash /tmp/winevideo-apppatch.sh 2>&1\" with administrator privileges"
-            let (rc1, out1) = self.shellOut("/usr/bin/osascript", ["-e", osa])
-            self.append(out1.isEmpty ? "(app-file step finished, rc=\(rc1))" : out1)
-            try? FileManager.default.removeItem(atPath: tmp)
-            // confirm the app files actually landed (the real success signal)
-            let soOK = (try? Data(contentsOf: URL(fileURLWithPath: app + "/Contents/SharedSupport/CrossOver/lib64/gstreamer-1.0/libgstvpx.dylib")))?.count ?? 0 > 0
-            // 2) BOTTLE registry as the USER — ONLY if bottles were selected (wine must NOT run as root).
-            var rc2: Int32 = 0
-            if !bottles.isEmpty {
-                var bargs = [script, "--bottle-only", app]; bargs += bottles
-                let (r, out2) = self.shellOut("/bin/bash", bargs); rc2 = r
-                self.append(out2)
+            var rc: Int32 = 0
+            if stageExists {
+                // Full patch: app files + sign + rename folder->.app + bottle(s). Runs as
+                // the user — no admin prompt, no App Management block (it's a folder).
+                var args = [script, stage]; args += bottles
+                let (r, out) = self.shellOut("/bin/bash", args); rc = r; self.append(out)
+            } else if appExists {
+                // Re-run for additional bottles only (no bundle writes needed).
+                var args = [script, "--bottle-only", app]; args += bottles
+                let (r, out) = self.shellOut("/bin/bash", args); rc = r; self.append(out)
             } else {
-                self.append("⚠️ No bottle selected. The app is patched, but VP9 games like Ninja Gaiden 4 also need their bottle patched — click “Scan bottles”, tick your game's bottle, and Patch again.")
+                DispatchQueue.main.async { self.busy = false; self.stage = "" }
+                self.append("❌ Nothing to patch — drag CrossOver.app above first.")
+                return
             }
+            // Success signal: the patched .app exists and our plugin landed.
+            let landed = (try? Data(contentsOf: URL(fileURLWithPath: app + "/Contents/SharedSupport/CrossOver/lib64/gstreamer-1.0/libgstvpx.dylib")))?.count ?? 0 > 0
             DispatchQueue.main.async {
                 self.busy = false; self.stage = ""
-                if soOK && rc2 == 0 {
-                    let extra = bottles.isEmpty ? " (no bottle patched — see warning above)" : " + bottle(s): \(bottles.sorted().joined(separator: ", "))"
-                    self.append("\n✅ PATCHED: app\(extra). Launch it and play.")
+                if landed {
+                    self.patched = true
+                    let appURL = URL(fileURLWithPath: app)
+                    let extra = bottles.isEmpty ? " (no bottle selected — VP9 games like Ninja Gaiden 4 need their bottle patched: Scan bottles, tick it, Patch again)" : " + bottle(s): \(bottles.sorted().joined(separator: ", "))"
+                    self.append("\n✅ PATCHED: \(appURL.lastPathComponent)\(extra)\n   Launch it from ~/Applications and play. (revealing in Finder)")
+                    NSWorkspace.shared.activateFileViewerSelecting([appURL])
+                } else {
+                    self.append("\n❌ Patch did not complete (rc=\(rc)). See the log above for the first error.")
                 }
-                else if !soOK { self.append("\n❌ App files did NOT get installed (admin step rc=\(rc1)). If no password prompt appeared, the admin step was blocked — try again, or run the patcher from Terminal.") }
-                else { self.append("\n⚠️ App patched but a bottle step had issues (rc=\(rc2)).") }
             }
         }
-    }
-
-    // run a tool, return exit code only
-    @discardableResult private func shell(_ tool: String, _ args: [String]) -> Int32 {
-        let p = Process(); p.executableURL = URL(fileURLWithPath: tool); p.arguments = args
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"; p.environment = env
-        do { try p.run() } catch { return -1 }
-        p.waitUntilExit(); return p.terminationStatus
     }
 
     // run a tool, return (exit code, combined output)
@@ -159,9 +167,11 @@ struct DropZone: View {
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(hovering ? 0.12 : 0.05)))
             VStack(spacing: 6) {
                 Image(systemName: "wineglass").font(.system(size: 28))
-                Text(m.dupAppPath == nil ? "Drag your CrossOver.app here" : "Duplicated ✓")
+                Text(m.stagePath == nil ? "Drag your CrossOver 26.2 app here"
+                     : (m.patched ? "Patched ✓" : "Copied — not patched yet"))
                     .font(.headline)
-                Text(m.dupAppPath ?? "copies it to ~/Applications/CrossOver-winevideo.app")
+                Text(m.stagePath == nil ? "copies it to ~/Applications/CrossOver-winevideo.app"
+                     : (m.finalApp ?? ""))
                     .font(.caption).foregroundColor(.secondary).lineLimit(1).truncationMode(.middle)
             }.padding()
         }
@@ -182,19 +192,21 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("winevideo — CrossOver 26.2 VP9 / video patcher").font(.title3).bold()
             DropZone(m: m)
-            Text(m.dupAppPath == nil
-                 ? "Step 1 — drop your CrossOver.app above (it makes a copy)."
-                 : "Step 2 — click “Scan bottles” and tick the bottle you play your VP9 game (e.g. Ninja Gaiden 4) in.\nStep 3 — click “Patch app” (asks for your password). This patches the app AND the selected bottle in one go.")
+            Text(m.stagePath == nil
+                 ? "Step 1 — drag your CrossOver 26.2 app here. This only makes a copy; it does NOT patch anything yet."
+                 : (m.patched
+                    ? "Done. Launch CrossOver-winevideo.app from ~/Applications. To add another game's bottle: Scan bottles, tick it, Patch."
+                    : "Copied — NOT patched yet.\nStep 2 — click “Scan bottles” and tick the bottle your game runs in.\nStep 3 — click “Patch” (patches the app AND the selected bottle together — no password needed)."))
                 .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
-                Button { m.runPatch() } label: { Label("Patch app", systemImage: "bandage.fill").frame(maxWidth: .infinity) }
+                Button { m.scanBottles() } label: { Label("Scan bottles", systemImage: "magnifyingglass").frame(maxWidth: .infinity) }
+                    .disabled(m.busy || m.stagePath == nil)
+                Button { m.runPatch() } label: { Label("Patch", systemImage: "bandage.fill").frame(maxWidth: .infinity) }
                     .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
-                    .disabled(m.busy || m.dupAppPath == nil)
-                Button { m.scanBottles() } label: { Label("Scan bottles", systemImage: "magnifyingglass") }
-                    .disabled(m.busy || m.dupAppPath == nil)
+                    .disabled(m.busy || m.stagePath == nil)
             }
             if !m.bottles.isEmpty {
-                Text("Bottles to register VP9 in (tick the ones with your games, then Patch app):").font(.caption).foregroundColor(.secondary)
+                Text("Tick the bottle your VP9 game runs in, then click Patch:").font(.caption).foregroundColor(.secondary)
                 ScrollView {
                     VStack(alignment: .leading) {
                         ForEach(m.bottles, id: \.self) { b in
@@ -212,7 +224,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
             }.frame(maxHeight: .infinity).background(Color.black.opacity(0.04)).cornerRadius(6)
         }
-        .padding(16).frame(width: 520, height: 560)
+        .padding(16).frame(width: 520, height: 580)
     }
 }
 
