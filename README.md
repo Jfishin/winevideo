@@ -1,0 +1,110 @@
+# winevideo
+
+Drop-in **VP9 / WebM video support for CrossOver 26.2** on Apple Silicon, plus a fix
+for the d3dmetal crash that kills Media Foundation video playback.
+
+Stock CrossOver 26.2 cannot decode VP9 and ships no WebM/Matroska support, so games
+that play VP9 cutscenes through Windows **Media Foundation** either refuse to start
+("the codec needed to play VP9 format videos is not installed") or hard-crash when a
+frame reaches the GPU. winevideo patches a copy of CrossOver to fix both.
+
+Reference test title: **Ninja Gaiden 4** (VP9-in-WebM cutscenes) — boots to gameplay
+with cutscenes playing.
+
+## What it does
+
+1. **Adds a real VP9/VP8 decoder** to CrossOver's GStreamer-backed Media Foundation
+   pipeline (`libgstvpx`) plus WebM/Matroska demuxing (`libgstmatroska`), built against
+   the matching GStreamer 1.24 runtime.
+2. **Advertises VP9 to games.** Registers a real winegstreamer-backed VP9 decoder MFT so
+   `MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, VP90)` returns it — games gate playback on this
+   check and otherwise show "VP9 codec not installed."
+3. **Fixes the d3dmetal video crash.** On the d3dmetal backend, the D3D11 path cannot
+   create NV12 textures (`CheckFormatSupport(NV12)=0`); Media Foundation creates one
+   anyway and Apple's Metal validation aborts the process (`invalid pixelFormat (0)`).
+   A patched `mfplat` falls back to a supported format (BGRA) instead of crashing. This
+   is codec-independent (it also affected H.264 video).
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technical breakdown.
+
+## Requirements
+
+- **CrossOver 26.2**, Apple Silicon (macOS). The binaries are built against 26.2's
+  Wine 11.0 / GStreamer 1.24.5 and are version-specific.
+- Use the **d3dmetal** graphics backend (the only one that runs most D3D12 titles).
+
+## Install
+
+Patch a **copy** of CrossOver — never the original.
+
+### GUI
+
+Open `gui/winevideo Patcher.app`:
+
+1. Drag your `CrossOver.app` onto the window — it duplicates to
+   `~/Applications/CrossOver-winevideo.app`.
+2. Click **Patch app** and authenticate at the prompt (writing inside an app bundle
+   requires elevation on macOS).
+3. *(Optional)* **Scan bottles**, tick the bottles holding your games, and Patch again
+   to register VP9 per-bottle.
+4. Launch `~/Applications/CrossOver-winevideo.app` and run the game.
+
+The app is unsigned; clear quarantine before first launch:
+`xattr -cr "gui/winevideo Patcher.app"`.
+
+### Command line
+
+```sh
+# duplicate first (Finder, or: ditto /Applications/CrossOver.app ~/Applications/CrossOver-winevideo.app)
+patcher/patch.sh /path/to/CrossOver-copy.app [bottle ...]
+```
+
+- No bottle argument → patches the app and every existing bottle.
+- The app-level DLLs apply to all bottles; the per-bottle registry must be applied to
+  each bottle (re-run with a bottle name for bottles created later).
+
+Revert with `patcher/restore.sh /path/to/CrossOver-copy.app [bottle ...]`.
+
+## How a patched app is produced
+
+The patcher copies prebuilt artifacts (`patcher/payload/`) into the app, ad-hoc signs the
+added libraries, registers the VP9 decoder MFT and `.webm`/`.mkv`/`.msd` byte-stream
+handlers in the bottle registry, then re-seals the bundle. The macOS-specific steps
+(copy with `ditto`, strip quarantine, ad-hoc re-seal **without** `--deep` to preserve
+Wine's entitlements, and wait for Wine's registry flush) are documented in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Repository layout
+
+| Path | Contents |
+|------|----------|
+| `patcher/` | Self-contained patcher: `patch.sh`, `restore.sh`, and `payload/` (prebuilt DLLs/plugins/deps + registry) |
+| `gui/` | SwiftUI front-end (`WineVideoPatcher.swift`) and `build-app.sh` |
+| `build/` | Scripts and patches to rebuild the Wine DLLs from CrossOver 26.2 source |
+| `build/patches/` | Wine source patches (VP9/AV1 caps, VP9 decoder MFT, mfplat BGRA fallback, build guards) |
+| `docs/` | Architecture and technical notes |
+| `mf_probe*.c`, `mft_probe.c` | Standalone test harnesses (decode probe, MFT-enumeration probe, D3D-backed probes) |
+
+## Building from source
+
+The payload is prebuilt, so rebuilding is only needed to modify the Wine DLLs. See
+[build/README.md](build/README.md). The Wine source patches are in `build/patches/`.
+
+## Scope and limitations
+
+- Covers games that play video through **Windows Media Foundation** (`IMFSourceReader`),
+  the common path for non-Unreal titles.
+- **Unreal Engine titles using ElectraPlayer** (UE's own video stack) are **not** covered
+  — Electra decodes independently of Media Foundation. Workaround: disable the game's
+  startup/cutscene movies.
+- The d3dmetal NV12→BGRA fallback may render some cutscenes with incorrect colors. The
+  game running without crashing is the goal; a complete fix for NV12 video textures
+  belongs in the D3D11→Metal backend itself.
+
+## Licensing
+
+The patcher's own scripts and harnesses in this repository are provided as-is. The
+prebuilt payload consists of Wine DLLs rebuilt from Wine source and GStreamer plugins +
+their dependencies, all derived from LGPL projects (Wine, GStreamer, libvpx, etc.).
+winevideo patches an existing, separately-licensed **CrossOver 26.2** install — you must
+supply your own.
