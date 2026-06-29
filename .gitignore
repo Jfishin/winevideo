@@ -1,5 +1,4 @@
-# build outputs / scratch
-build/
+# build artifacts live in ~/.local/winevideo (external); repo build/ holds scripts
 dist/
 *.o
 *.obj
