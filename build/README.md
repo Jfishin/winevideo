@@ -13,8 +13,10 @@ modify the Wine DLLs.
 - **x86_64 Homebrew** (`/usr/local`) — all build commands run under Rosetta
   (`arch -x86_64`), since CrossOver's Wine is x86_64.
 - **llvm-mingw** — PE cross-compiler for the Windows-side DLLs.
-- **FFmpeg 7.1** — majors must match CrossOver 26.2: avcodec 61, avformat 61,
-  avutil 59, swscale 8.
+- **FFmpeg 7.1** — the era-appropriate FFmpeg for Wine 11.0 (avcodec 61, avformat 61,
+  avutil 59, swscale 8); used to build/link `winedmo`. (CrossOver 26 itself ships no FFmpeg
+  — its `winedmo` is a demux-only stub built without it — so this is purely a build-time
+  dependency for our own DLLs, not an ABI we must match against the CX bundle.)
 - A **GStreamer 1.24.x framework** bundling glib 2.74 (see
   `winegstreamer-vp9-recipe.md`).
 - The **CrossOver 26.2 Wine source** tarball.

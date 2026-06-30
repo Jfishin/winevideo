@@ -7,10 +7,16 @@ packaging constraints involved.
 
 CrossOver 26.2 is based on Wine 11.0 and bundles:
 
-- **winegstreamer** + **GStreamer 1.24.5** — the *active* Media Foundation decoder.
-  It demuxes and decodes via GStreamer `decodebin`, returning decoded frames to
-  `IMFSourceReader`. (`winedmo` / `mfsrcsnk` exist but are dormant for these paths.)
-- **FFmpeg 7.1** (libavcodec 61, libavformat 61, libavutil 59, libswscale 8).
+- **winegstreamer** + **GStreamer 1.24.5** — the *active* Media Foundation backend; it
+  demuxes **and** decodes via GStreamer `decodebin`, returning frames to `IMFSourceReader`.
+  CX26 also ships a **`winedmo`** Media Foundation component, but in this build it is a
+  **demux-only stub compiled *without* FFmpeg** (a ~39 KB `.so` with zero `avcodec`
+  symbols), so it is inert — GStreamer handles both demux and decode in practice.
+- **No usable FFmpeg is shipped.** CrossOver 26.2's `lib64` contains **no** `libav*`/`libsw*`
+  dylibs. (Earlier drafts of this doc listed "FFmpeg 7.1" as part of CX's bundle — that was
+  wrong; **7.1 is only the *build-environment* target** we compile our own DLLs against for
+  ABI compatibility, not something CrossOver ships. A functional FFmpeg path would have to
+  bring its own FFmpeg — see the project notes on the winedmo decode route.)
 - Graphics backends: **d3dmetal** (Apple GPTK; D3D11 + D3D12 → Metal).
 
 A Media Foundation source is resolved by: scheme handler (`file:`) → byte-stream
