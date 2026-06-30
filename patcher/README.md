@@ -60,6 +60,15 @@ CrossOver Preview, which has a different layout).
 - Patch a bottle after the game is installed (so the bottle is initialized). The patcher
   prints `VP9 decoder MFT registered ✓` or a warning to re-run.
 
+### Extra codecs (RE Engine: DMC5, RE2/3/8, MHW)
+
+These games use **WMV/VC-1** movies that need FFmpeg-backed decoders. winevideo ships **no
+FFmpeg**; if you install the official **GStreamer 1.24.13** framework
+(<https://gstreamer.freedesktop.org/data/pkg/osx/1.24.13/gstreamer-1.0-1.24.13-universal.pkg>,
+must be 1.24.x), `patch.sh` auto-detects it, pulls `libgstlibav` + its FFmpeg libs from
+**your** install, thins to x86_64 and adapts them in, and prints
+`RE Engine codecs added from your GStreamer ✓`. Not installed → step skipped, VP9 still works.
+
 ## Undo
 
 ```sh

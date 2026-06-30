@@ -35,6 +35,11 @@ CrossOver 26.2 on the d3dmetal backend:
    anyway and Apple's Metal validation aborts the process (`invalid pixelFormat (0)`).
    A patched `mfplat` falls back to a supported format (BGRA) instead of crashing. This
    is codec-independent (it also affected H.264 video).
+4. **Optional: RE Engine and other extra video (WMV/VC-1, …).** If you install the
+   official GStreamer 1.24 framework, the patcher pulls FFmpeg-backed decoders
+   (`libgstlibav`) from *your* install — adding WMV/VC-1/WMA (e.g. Devil May Cry 5 and
+   other Capcom RE Engine logo movies) and more. **Nothing FFmpeg ships in this repo**; it
+   comes from your own GStreamer. See [Extra video codecs](#extra-video-codecs--re-engine-and-more-optional).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technical breakdown.
 
@@ -77,6 +82,29 @@ patcher/patch.sh /path/to/CrossOver-copy.app [bottle ...]
   each bottle (re-run with a bottle name for bottles created later).
 
 Revert with `patcher/restore.sh /path/to/CrossOver-copy.app [bottle ...]`.
+
+## Extra video codecs — RE Engine and more (optional)
+
+Some games — Capcom **RE Engine** titles (**Devil May Cry 5**, RE2/3/8, MHW) and others —
+play movies in formats CrossOver and Apple's VideoToolbox can't decode (notably
+**WMV9 / VC-1**), and crash on the missing decoder. These need FFmpeg-backed decoders.
+
+To keep this project free of redistributed codecs, **winevideo does not ship FFmpeg** — it
+uses the decoders from *your own* GStreamer install:
+
+1. Install the official **GStreamer 1.24.13** runtime framework (default install):
+   <https://gstreamer.freedesktop.org/data/pkg/osx/1.24.13/gstreamer-1.0-1.24.13-universal.pkg>
+   It **must be 1.24.x** — newer 1.26/1.28 builds use a glib that won't load in CrossOver's
+   glib 2.78; the patcher version-checks and refuses cleanly rather than break.
+2. Patch as usual (GUI or CLI). The patcher detects your GStreamer framework, pulls
+   `libgstlibav` (+ its FFmpeg libraries) from it, thins them to x86_64 and adapts them into
+   the patched CrossOver, and reports `RE Engine codecs added from your GStreamer ✓`.
+3. If GStreamer isn't installed, this step is **skipped** — VP9 / Ninja Gaiden 4 still works
+   with no extra download. Only the FFmpeg-backed codecs require the GStreamer install.
+
+This gives `avdec_vc1` / `avdec_wmv3` / `avdec_wmav2` (WMV/VC-1/WMA) plus H.264/AAC/AC-3, so
+RE Engine movies play. The codec binaries are the GStreamer Foundation's, taken from your
+machine at patch time — this repo redistributes none of them.
 
 ## How a patched app is produced
 

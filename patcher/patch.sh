@@ -50,6 +50,10 @@ SEL_BOTTLES=("$@")
 case "$APP" in *.app) STAGE=0; FINAL="$APP";; *) STAGE=1; FINAL="${APP}.app";; esac
 BK="${FINAL}.winevideo-backup"; mkdir -p "$BK"   # kept OUTSIDE the bundle (never affects the seal)
 FINAL_LIB64="$FINAL/Contents/SharedSupport/CrossOver/lib64"   # rpath target = the EVENTUAL .app path
+# Optional RE Engine / extra codecs come from the USER's own official GStreamer 1.24.x
+# framework (we never ship FFmpeg). If it isn't installed, that step is simply skipped.
+GST_FW="/Library/Frameworks/GStreamer.framework/Versions/1.0"
+GST_DL="https://gstreamer.freedesktop.org/data/pkg/osx/1.24.13/gstreamer-1.0-1.24.13-universal.pkg"
 
 compute_paths(){
   SS="$APP/Contents/SharedSupport/CrossOver"
@@ -78,6 +82,11 @@ backup(){ local rel="$1" src="$2"; [ -f "$BK/$rel" ] || { [ -f "$src" ] && cp "$
 # the user later moving/renaming the app) and (2) the absolute final-.app lib64 as a
 # belt-and-suspenders fallback (this matches the proven pre-staging behavior).
 fix_so(){ local so="$1"
+  # CX wine is x86_64-only. Thin any universal (fat) dylib to x86_64 so the compat-version
+  # rewrite (which only handles thin 64-bit Mach-O) actually applies — and it halves size.
+  if lipo -archs "$so" 2>/dev/null | grep -q arm64; then
+    lipo "$so" -thin x86_64 -output "$so.x86_64only" 2>/dev/null && mv -f "$so.x86_64only" "$so"
+  fi
   for rp in $(otool -l "$so" 2>/dev/null | awk '/LC_RPATH/{getline;getline;print $2}'); do
     case "$rp" in *gst-framework*|*usr/local*|*homebrew*|*/opt/*) install_name_tool -delete_rpath "$rp" "$so" 2>/dev/null;; esac
   done
@@ -88,6 +97,19 @@ fix_so(){ local so="$1"
   install_name_tool -add_rpath "$FINAL_LIB64" "$so" 2>/dev/null
   [ -f "$COMPAT" ] && python3 "$COMPAT" "$so" >/dev/null 2>&1
   codesign -f -s - "$so" 2>/dev/null
+}
+
+# Copy a dylib from the user's GStreamer framework into the app's lib64 and recursively
+# pull its @rpath FFmpeg deps, adapting each (rpath/compat/sign). Used ONLY for the
+# optional RE Engine codecs — we do not ship these; they come from the user's GStreamer.
+pull_gst_lib(){ local name="$1"
+  local dst="$LIB64/$name"; [ -f "$dst" ] && return 0
+  local src="$GST_FW/lib/$name"; [ -f "$src" ] || return 1
+  cp "$src" "$dst"; fix_so "$dst"
+  local dep
+  for dep in $(otool -L "$dst" 2>/dev/null | awk '/@rpath\/lib(av|sw)/{print $1}'); do
+    pull_gst_lib "$(basename "$dep")"
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -124,6 +146,32 @@ if [ "$MODE" != bottle ]; then
 
   echo "--- app: enable applemedia (VideoToolbox h264/hevc), if present disabled ---"
   [ -f "$PLUGDIR/libgstapplemedia.dylib.disabled" ] && cp "$PLUGDIR/libgstapplemedia.dylib.disabled" "$PLUGDIR/libgstapplemedia.dylib"
+
+  # ---- optional: RE Engine / extra codecs, sourced from the USER's GStreamer ----
+  # We never ship FFmpeg. If the user installed the official GStreamer 1.24.x framework,
+  # pull libgstlibav (+ its FFmpeg deps) from THEIR copy → avdec_vc1/wmv3/wmav2 (WMV/VC-1/
+  # WMA: DMC5, RE2/3/8, MHW logo movies) + h264/aac/ac3. Skipped cleanly if not installed.
+  echo "--- app: optional RE Engine codecs (libgstlibav from your GStreamer, if installed) ---"
+  GST_LA="$GST_FW/lib/gstreamer-1.0/libgstlibav.dylib"
+  if [ ! -f "$GST_LA" ]; then
+    echo "    (skipped) For RE Engine / WMV / extra video (DMC5, RE2/3/8, MHW), install the"
+    echo "    official GStreamer 1.24.x framework (default install), then re-run the patcher:"
+    echo "      $GST_DL"
+  else
+    gv=$(otool -L "$GST_LA" 2>/dev/null | grep 'libglib-2.0.0.dylib' | sed -nE 's/.*compatibility version ([0-9]+).*/\1/p' | head -1)
+    if [ "${gv:-0}" -ge 8001 ]; then
+      echo "    (skipped) Your GStreamer is too new (glib $gv ≥ 2.80) for CrossOver's glib 2.78."
+      echo "    Install GStreamer 1.24.x specifically: $GST_DL"
+    else
+      cp "$GST_LA" "$PLUGDIR/libgstlibav.dylib"
+      for dep in $(otool -L "$GST_LA" 2>/dev/null | awk '/@rpath\/lib(av|sw)/{print $1}'); do
+        pull_gst_lib "$(basename "$dep")"
+      done
+      fix_so "$PLUGDIR/libgstlibav.dylib"
+      nlib=$(ls "$LIB64"/lib{av,sw}*.dylib 2>/dev/null | wc -l | tr -d ' ')
+      echo "    RE Engine codecs added from your GStreamer ✓ (libgstlibav + $nlib FFmpeg libs)"
+    fi
+  fi
 
   # ---- verify the app files actually landed ----
   MISSING=""
