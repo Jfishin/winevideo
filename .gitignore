@@ -8,3 +8,4 @@ backtrace*.txt
 *.cxlog
 *.log
 .DS_Store
+build/_local-patches/

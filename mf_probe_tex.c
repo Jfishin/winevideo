@@ -4,7 +4,7 @@
  * invalid Metal pixelFormat aborts the process, so BGRA is tested first.
  *
  * Build: x86_64-w64-mingw32-gcc mf_probe_tex.c -o mf_probe_tex.exe -ld3d11 -ldxgi -lole32 -luuid
- * Run:   CX_BOTTLE=steam-ul <app>/bin/wine mf_probe_tex.exe
+ * Run:   CX_BOTTLE=Steam <app>/bin/wine mf_probe_tex.exe
  */
 #define COBJMACROS
 #include <windows.h>

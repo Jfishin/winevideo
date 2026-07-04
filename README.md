@@ -137,9 +137,22 @@ The payload is prebuilt, so rebuilding is only needed to modify the Wine DLLs. S
 
 - Covers games that play video through **Windows Media Foundation** (`IMFSourceReader`),
   the common path for non-Unreal titles.
-- **Unreal Engine titles using ElectraPlayer** (UE's own video stack) are **not** covered
-  — Electra decodes independently of Media Foundation. Workaround: disable the game's
-  startup/cutscene movies.
+- **Unreal Engine 5 titles that use ElectraPlayer** now have their cutscenes **decoded** by this
+  patcher, but Electra also needs one console variable set per game (the patcher can't set it
+  automatically). Unreal creates `GameUserSettings.ini` on its own but not `Engine.ini`, so create an
+  `Engine.ini` at `%LOCALAPPDATA%\<Project>\Saved\Config\Windows\Engine.ini` (in CrossOver this is
+  inside the bottle's `drive_c/users/<user>/AppData/Local/…`; `<Project>` is the game's own name, taken
+  from its `<Project>-Win64-Shipping.exe`) containing:
+
+  ```ini
+  [SystemSettings]
+  Electra.Win.H264UseOldOutputPath=1
+  Electra.Win.H265UseOldOutputPath=1
+  ```
+
+  Use the `Engine.ini` form only — the `-dpcvars` launch-option form crashes. This applies only to
+  Electra titles; UE5 games that play video through other paths are not covered. Some titles may also
+  require Apple's Game Porting Toolkit 4.x graphics backend.
 - The d3dmetal NV12→BGRA fallback may render some cutscenes with incorrect colors: it
   prioritizes crash-free playback over color accuracy. A complete fix for NV12 video
   textures belongs in the D3D11→Metal backend itself.

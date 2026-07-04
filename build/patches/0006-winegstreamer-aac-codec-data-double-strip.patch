@@ -1,0 +1,113 @@
+From 16250261e4bf8cccd1948340aa12c1879ee9020e Mon Sep 17 00:00:00 2001
+From: Jfishin <joshuagrgurich9287@gmai.com>
+Date: Wed, 1 Jul 2026 21:48:53 -0400
+Subject: [PATCH] winegstreamer: give raw AAC a codec_data even when the app
+ provides none
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+UE Electra sets the MF AAC input type with only the 12 HEAACWAVEINFO header
+bytes as user data — no AudioSpecificConfig — so both caps builders end up
+with zero codec data and aacparse hard-fails raw streams ('Need codec_data
+for raw AAC'). The audio stream dies and Electra tears down the whole
+session, leaving cutscenes black even though video decodes (Screamer Demo).
+
+In the wg_media_type path (used by the AAC decoder MFT), synthesize an
+AAC-LC AudioSpecificConfig from the wave format's rate and channel count
+when the blob carries none. Also fix the wg_format path, which stripped
+the HEAACWAVEINFO header a second time after mfplat already had, dropping
+short codec data; and synthesize there as a last resort too.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+---
+ dlls/winegstreamer/wg_format.c     | 34 ++++++++++++++++++++++++++++++
+ dlls/winegstreamer/wg_media_type.c | 27 +++++++++++++++++++++++-
+ 2 files changed, 60 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/winegstreamer/wg_format.c b/dlls/winegstreamer/wg_format.c
+index bed7ffb..6be563a 100644
+--- a/dlls/winegstreamer/wg_format.c
++++ b/dlls/winegstreamer/wg_format.c
+@@ -781,6 +781,40 @@ static GstCaps *wg_format_to_caps_audio_mpeg4(const struct wg_format *format)
+         gst_caps_set_simple(caps, "codec_data", GST_TYPE_BUFFER, buffer, NULL);
+         gst_buffer_unref(buffer);
+     }
++    else if (format->u.audio.codec_data_len)
++    {
++        /* Callers like the MF AAC decoder MFT store the bare
++         * AudioSpecificConfig with the HEAACWAVEINFO header already
++         * stripped; don't strip it twice. */
++        buffer = gst_buffer_new_and_alloc(format->u.audio.codec_data_len);
++        gst_buffer_fill(buffer, 0, format->u.audio.codec_data, format->u.audio.codec_data_len);
++        gst_caps_set_simple(caps, "codec_data", GST_TYPE_BUFFER, buffer, NULL);
++        gst_buffer_unref(buffer);
++    }
++    else if (!format->u.audio.payload_type && format->u.audio.rate && format->u.audio.channels <= 7)
++    {
++        /* Raw AAC without codec data cannot be parsed at all; synthesize an
++         * AAC-LC AudioSpecificConfig from the rate and channel count. */
++        static const unsigned int rates[] = {96000, 88200, 64000, 48000, 44100,
++                32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350};
++        unsigned int i;
++        guint8 asc[2];
++
++        for (i = 0; i < G_N_ELEMENTS(rates); ++i)
++        {
++            if (rates[i] == format->u.audio.rate)
++                break;
++        }
++        if (i < G_N_ELEMENTS(rates))
++        {
++            asc[0] = (2 << 3) | (i >> 1);
++            asc[1] = ((i & 1) << 7) | (format->u.audio.channels << 3);
++            buffer = gst_buffer_new_and_alloc(sizeof(asc));
++            gst_buffer_fill(buffer, 0, asc, sizeof(asc));
++            gst_caps_set_simple(caps, "codec_data", GST_TYPE_BUFFER, buffer, NULL);
++            gst_buffer_unref(buffer);
++        }
++    }
+ 
+     return caps;
+ }
+diff --git a/dlls/winegstreamer/wg_media_type.c b/dlls/winegstreamer/wg_media_type.c
+index 5ca3503..c60760e 100644
+--- a/dlls/winegstreamer/wg_media_type.c
++++ b/dlls/winegstreamer/wg_media_type.c
+@@ -100,7 +100,32 @@ static void init_caps_from_wave_format_mp3(GstCaps *caps, const MPEGLAYER3WAVEFO
+ 
+ static void init_caps_from_wave_format_aac(GstCaps *caps, const HEAACWAVEFORMAT *format, UINT32 format_size)
+ {
+-    init_caps_codec_data(caps, format->pbAudioSpecificConfig, format_size - sizeof(format->wfInfo));
++    int codec_data_size = (int)format_size - (int)sizeof(format->wfInfo);
++
++    if (codec_data_size > 0)
++        init_caps_codec_data(caps, format->pbAudioSpecificConfig, codec_data_size);
++    else
++    {
++        /* Some apps (UE Electra) provide no AudioSpecificConfig at all, and
++         * raw AAC without codec data cannot be parsed downstream; synthesize
++         * an AAC-LC config from the wave format instead. */
++        static const unsigned int rates[] = {96000, 88200, 64000, 48000, 44100,
++                32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350};
++        unsigned int i, rate = format->wfInfo.wfx.nSamplesPerSec, channels = format->wfInfo.wfx.nChannels;
++        guint8 asc[2];
++
++        for (i = 0; i < G_N_ELEMENTS(rates); ++i)
++        {
++            if (rates[i] == rate)
++                break;
++        }
++        if (i < G_N_ELEMENTS(rates) && channels > 0 && channels <= 7)
++        {
++            asc[0] = (2 << 3) | (i >> 1);
++            asc[1] = ((i & 1) << 7) | (channels << 3);
++            init_caps_codec_data(caps, asc, sizeof(asc));
++        }
++    }
+ 
+     gst_structure_remove_field(gst_caps_get_structure(caps, 0), "format");
+     gst_structure_set_name(gst_caps_get_structure(caps, 0), "audio/mpeg");
+-- 
+2.50.1 (Apple Git-155)
+

@@ -41,6 +41,11 @@ All under Rosetta / x86_64. Paths come from `env.sh`.
 | `0002-winegstreamer-vp9-av1-caps` | VP9/AV1 caps mapping + decoder input types |
 | `0003-winegstreamer-vp9-decoder-mft` | real VP9 decoder MFT (advertised via MFTEnumEx) |
 | `0004-mfplat-d3d11-nv12-bgra-fallback` | d3dmetal NV12→BGRA fallback (no Metal abort) |
+| `0005-winegstreamer-no-d3d-awareness-on-macos` | UE ElectraPlayer takes its software decode path on macOS |
+| `0006-winegstreamer-aac-codec-data-double-strip` | synthesize a missing AAC AudioSpecificConfig |
+| `0007-winegstreamer-2d-output-samples-macos` | deliver IMF2DBuffer-capable output samples on macOS |
+
+See `SOURCES.md` for per-patch attribution.
 
 ## Installing into a CrossOver app
 

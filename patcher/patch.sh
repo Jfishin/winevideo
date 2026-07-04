@@ -4,7 +4,14 @@
 # =============================================================================
 #  Adds real VP9 (+VP8/WebM/Matroska) video support to a CrossOver 26.2 app and
 #  fixes the d3dmetal "NV12 video texture" crash, so Media-Foundation video
-#  games (e.g. Ninja Gaiden 4) play their cutscenes.
+#  games (e.g. Ninja Gaiden 4) play their cutscenes. Also adds the UE5 Electra
+#  DECODE fixes (winegstreamer) so UE5 titles (e.g. Screamer, Void Breaker) can
+#  decode their cutscenes. Those titles ALSO need a per-game Engine.ini with the
+#  Electra CPU-output cvars (NOT the -dpcvars launch option, which crashes):
+#    [SystemSettings]
+#    Electra.Win.H264UseOldOutputPath=1
+#    Electra.Win.H265UseOldOutputPath=1
+#  See WORKING-AND-BROKEN-GAMES.md for the exact per-game setup.
 #
 #  USAGE:
 #    1. Duplicate your CrossOver.app (keep the original pristine).
@@ -116,7 +123,7 @@ pull_gst_lib(){ local name="$1"
 #  APP FILES + FINALIZE (verify, re-seal, rename staging folder -> .app)
 # ---------------------------------------------------------------------------
 if [ "$MODE" != bottle ]; then
-  echo "--- app: winegstreamer (VP9/AV1 caps) + mfplat (NV12->BGRA fallback) ---"
+  echo "--- app: winegstreamer (VP9/AV1 + UE5 Electra decode) + mfplat (NV12->BGRA fallback) ---"
   backup "winegstreamer.dll" "$WINE_PE/winegstreamer.dll"
   backup "winegstreamer.so"  "$WINE_UNIX/winegstreamer.so"
   backup "mfplat.dll"        "$WINE_PE/mfplat.dll"
