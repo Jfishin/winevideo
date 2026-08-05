@@ -92,7 +92,7 @@ All of these were tried and measured on the setup above. None makes the picture 
 |---|---|---|
 | 1 | Patch out the NV12 skip in `winegstreamer` (2 bytes at RVA `0x2c6be`) | NV12 is negotiated, then the game hangs at 0 % CPU before reaching the menus. Necessary but far from sufficient. |
 | 2 | Reorder `h264_decoder_output_types` (RVA `0x4d4e0`) to put YUY2 first | Unreal enumerates the whole list and picks NV12 regardless. Format order is not a lever. |
-| 3 | Neutralise `sample_allocator_SetDirectXManager` in `mfplat` (3 bytes at RVA `0x281e0`, `xor eax,eax; ret`) to force system-memory buffers | Game starts, then crashes in thread `ElectraPlayer::Video decoder`, `EXCEPTION_ACCESS_VIOLATION` reading `0x0`. Disassembly shows a `QueryInterface` for IID `a06eb39a-50da-425b-8c31-4eecd6c270f3` (an Electra-internal interface, not a Media Foundation one) whose HRESULT is **not checked** before the pointer is dereferenced. |
+| 3 | Neutralise `sample_allocator_SetDirectXManager` in `mfplat` (3 bytes at RVA `0x281e0`, `xor eax,eax; ret`) to force system-memory buffers | Game starts, then crashes in thread `ElectraPlayer::Video decoder`, `EXCEPTION_ACCESS_VIOLATION` reading `0x0`. Disassembly shows a `QueryInterface` for IID `a06eb39a-50da-425b-8c31-4eecd6c270f3` whose HRESULT is **not checked** before the pointer is dereferenced. Patch `0007` explains it: Electra requires `IMF2DBuffer` on video frames, and a plain caller-provided memory buffer does not implement it. |
 | 4 | `-dx11` on the command line | No effect; the title is cooked SM6 only. |
 | 5 | Disable Media Foundation entirely (`WINEDLLOVERRIDES` for `mfplat,mf,mfreadwrite,winegstreamer`) | No effect on the black screen. |
 | 6 | User `Game.ini` clearing `StartupMovies` | No effect. |
@@ -115,14 +115,30 @@ Two side observations worth keeping:
 
 ---
 
-## 5. What actually works
+## 5. Which patches actually carry an Electra title
 
-The two pieces this project provides, and they are both required:
+Worth spelling out, because the obvious guess is wrong. For an H.264/Electra title the
+`mfplat` NV12 → BGRA fallback (`0004`) is a safety net that may never even fire: once
+`0005` refuses the D3D device manager, no D3D texture is ever allocated. The two patches
+that carry the title are `0005` and `0007`, with `0006` cleaning up the audio track.
 
-1. The patched `mfplat` NV12 → BGRA fallback, which stops Media Foundation from asking the
-   graphics layer for a texture format it reports as unsupported.
-2. The per-game `Engine.ini` with `Electra.Win.H264UseOldOutputPath=1`, which makes Electra
-   take its CPU output path and stop requesting a GPU texture in the first place.
+| Patch | File | Effect on an Electra title |
+|---|---|---|
+| `0002`, `0003` | `wg_media_type.c`, `video_decoder.c` | VP9 only, not involved. |
+| `0004` | `mfplat/sample.c` | Safety net for the `IMFSourceReader` path. Not the mechanism here. |
+| **`0005`** | `winegstreamer/video_decoder.c` | **Decisive.** Three changes: NV12 becomes enumerable again *only when no D3D manager is set* (narrowing CW HACK 26265); `MFT_MESSAGE_SET_D3D_MANAGER` returns `E_NOTIMPL` on macOS; `MF_SA_D3D_AWARE` / `MF_SA_D3D11_AWARE` are advertised as FALSE on macOS. Electra therefore takes its software path from the start. |
+| **`0007`** | `winegstreamer/video_decoder.c` | **Decisive.** Sets `MFT_OUTPUT_STREAM_PROVIDES_SAMPLES` on macOS so the decoder supplies its own samples, whose buffers implement `IMF2DBuffer`. Electra requires that interface on video frames and silently rejects every frame without it. |
+| **`0006`** | `winegstreamer/wg_format.c` | Fixes the AAC `codec_data` double strip, i.e. the `Need codec_data for raw AAC` error above. |
+
+Read against that table, every dead end in section 4 is **half of the real fix applied at
+the wrong layer**. Hand-clearing the NV12 skip is `0005` without its two other changes, so
+NV12 also becomes available on the D3D path and the game hangs. Neutralising
+`sample_allocator_SetDirectXManager` in `mfplat` is `0005`'s `E_NOTIMPL` one layer too low,
+and without `0007` the resulting plain memory buffers have no `IMF2DBuffer`, which is
+exactly the `QueryInterface` returning `NULL` in the crash of dead end 3.
+
+Plus the per-game `Engine.ini` with `Electra.Win.H264UseOldOutputPath=1`, which puts Electra
+on its CPU output path.
 
 Verified end to end on Beast of Reincarnation: cutscenes play, `read_transform_output_video`
 fires hundreds of times per scene, no crash, progression unblocked.
