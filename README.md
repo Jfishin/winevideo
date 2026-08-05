@@ -41,7 +41,10 @@ CrossOver 26.2 on the d3dmetal backend:
    other Capcom RE Engine logo movies) and more. **Nothing FFmpeg ships in this repo**; it
    comes from your own GStreamer. See [Extra video codecs](#extra-video-codecs--re-engine-and-more-optional).
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technical breakdown.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technical breakdown,
+[WORKING-AND-BROKEN-GAMES.md](WORKING-AND-BROKEN-GAMES.md) for per-game results, and
+[docs/UE5-ELECTRA-DIAGNOSIS.md](docs/UE5-ELECTRA-DIAGNOSIS.md) for measurement recipes and a
+list of approaches that were tried and do not work.
 
 ## Requirements
 
@@ -49,6 +52,9 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technical breakdow
   (macOS). The binaries are built against 26.2's Wine 11.0 / GStreamer 1.24.5 and are
   version-specific; the patcher refuses other builds.
 - Use the **d3dmetal** graphics backend (the only one that runs most D3D12 titles).
+- Also reported working on **CrossOver 26.3** (Wine 11.0 too): the patcher's guard checks for
+  `lib64/gstreamer-1.0` rather than the version string, and it applies cleanly. See
+  [WORKING-AND-BROKEN-GAMES.md](WORKING-AND-BROKEN-GAMES.md).
 
 ## Install
 
@@ -153,6 +159,11 @@ The payload is prebuilt, so rebuilding is only needed to modify the Wine DLLs. S
   Use the `Engine.ini` form only — the `-dpcvars` launch-option form crashes. This applies only to
   Electra titles; UE5 games that play video through other paths are not covered. Some titles may also
   require Apple's Game Porting Toolkit 4.x graphics backend.
+
+  **Make that `Engine.ini` read-only** (`chmod 444`). Unreal rewrites `Saved/Config/Windows` and can
+  delete an `Engine.ini` it did not create: the first cutscene plays, the file disappears, and the
+  *next* launch crashes back on the NV12 texture path. That failure mode reads like an unstable
+  patch, but it is only the missing file. Verified on Beast of Reincarnation.
 - The d3dmetal NV12→BGRA fallback may render some cutscenes with incorrect colors: it
   prioritizes crash-free playback over color accuracy. A complete fix for NV12 video
   textures belongs in the D3D11→Metal backend itself.
