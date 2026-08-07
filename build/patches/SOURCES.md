@@ -14,7 +14,9 @@ against public Microsoft D3D11 / Media Foundation APIs.
 | **0005** | `winegstreamer` | on macOS, the video decoder MFT reports not-D3D-aware so UE ElectraPlayer takes its software path | **Original (AI-generated)** for the macOS/d3dmetal case. |
 | **0006** | `winegstreamer` | synthesize a missing AAC `AudioSpecificConfig` so the audio decoder doesn't fail | **Original (AI-generated).** |
 | **0007** | `winegstreamer` | on macOS, deliver 2D / `IMF2DBuffer`-capable output samples that direct MFT consumers require | **Original (AI-generated).** |
+| **0008** | `d3d9` | add the opt-in D3D9-to-DXMT video bridge handle and sidecar used by legacy VMR9 cutscene presenters | **Original (AI-assisted).** Built against Wine's public D3D9 interfaces and the existing DXMT shared-texture contract. |
+| **0009** | `d3d9` | upload each presented D3D9 video surface into the D3D11/DXMT bridge texture, including format conversion and synchronization | **Original (AI-assisted).** Implements the tested CPU-visible fallback path using documented D3D9/D3D11 resource APIs. |
 
 Ports (0002, 0003) are derivative of Valve's Proton winegstreamer work and carry the same license as
-Wine. The original patches (0004–0007) implement documented Microsoft D3D11 / Media Foundation API
+Wine. The original patches (0004–0009) implement documented Microsoft D3D / Media Foundation API
 patterns for the macOS graphics-translation limitations this project targets.

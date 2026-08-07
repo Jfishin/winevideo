@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"; source ./env.sh
-TARBALL="/Users/jfishin/Downloads/crossover-sources-26.2.0.tar.gz"
+TARBALL="${CROSSOVER_SOURCE_TARBALL:-$HOME/Downloads/crossover-sources-26.2.0.tar.gz}"
 
 mkdir -p "$WV_ROOT/src"
 if [ -d "$WV_SRC/.git" ]; then echo "Source already staged at $WV_SRC"; exit 0; fi

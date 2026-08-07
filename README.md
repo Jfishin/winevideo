@@ -1,213 +1,112 @@
 # winevideo
 
-Drop-in **VP9 / WebM video support for CrossOver 26.2** on Apple Silicon, plus a fix
-for the d3dmetal crash that kills Media Foundation video playback.
+Cutscene compatibility patches for CrossOver 26.2 and 26.3 on Apple Silicon.
 
-Stock CrossOver 26.2 cannot decode VP9 and ships no WebM/Matroska support, so games
-that play VP9 cutscenes through Windows **Media Foundation** either refuse to start
-("the codec needed to play VP9 format videos is not installed") or hard-crash when a
-frame reaches the GPU. winevideo patches a copy of CrossOver to fix both.
-
-Reference test title: **Ninja Gaiden 4** (VP9-in-WebM cutscenes) — boots to gameplay
-with cutscenes playing.
-
-## Screenshots
-
-The drag-and-drop patcher, and a VP9 cutscene playing in Ninja Gaiden 4 under
-CrossOver 26.2 on the d3dmetal backend:
+winevideo patches a duplicate CrossOver application and one selected bottle. It
+adds missing Windows video support without modifying the original CrossOver app
+or redistributing proprietary game files.
 
 <p align="center">
-  <img src="docs/images/patcher-app.png" alt="winevideo Patcher window" height="340">
-  &nbsp;&nbsp;
-  <img src="docs/images/ng4-cutscene.png" alt="VP9 cutscene playing in Ninja Gaiden 4 under CrossOver 26.2" height="340">
+  <img src="docs/images/patcher-app.png" alt="winevideo Patcher window" height="420">
 </p>
 
 ## What it does
 
-1. **Adds a real VP9/VP8 decoder** to CrossOver's GStreamer-backed Media Foundation
-   pipeline (`libgstvpx`) plus WebM/Matroska demuxing (`libgstmatroska`), built against
-   the matching GStreamer 1.24 runtime.
-2. **Advertises VP9 to games.** Registers a real winegstreamer-backed VP9 decoder MFT so
-   `MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, VP90)` returns it — games gate playback on this
-   check and otherwise show "VP9 codec not installed."
-3. **Fixes the d3dmetal video crash.** On the d3dmetal backend, the D3D11 path cannot
-   create NV12 textures (`CheckFormatSupport(NV12)=0`); Media Foundation creates one
-   anyway and Apple's Metal validation aborts the process (`invalid pixelFormat (0)`).
-   A patched `mfplat` falls back to a supported format (BGRA) instead of crashing. This
-   is codec-independent (it also affected H.264 video).
-4. **Optional: RE Engine and other extra video (WMV/VC-1, …).** If you install the
-   official GStreamer 1.24 framework, the patcher pulls FFmpeg-backed decoders
-   (`libgstlibav`) from *your* install — adding WMV/VC-1/WMA (e.g. Devil May Cry 5 and
-   other Capcom RE Engine logo movies) and more. **Nothing FFmpeg ships in this repo**; it
-   comes from your own GStreamer. See [Extra video codecs](#extra-video-codecs--re-engine-and-more-optional).
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technical breakdown.
+- Adds VP9/WebM decoding and Media Foundation registration for games such as
+  **Ninja Gaiden 4**.
+- Adds Media Foundation software-output fixes used by supported Unreal Engine
+  ElectraPlayer titles.
+- Optionally imports WMV/VC-1 codecs from the user's official GStreamer install
+  for **Nioh**, **Nioh 2**, **Persona 5 Strikers**, and other Windows-media
+  titles.
+- Adds an opt-in D3D9-to-DXMT video bridge for the shared-texture cutscene path
+  used by **Nioh**, **Nioh 2**, and **Persona 5 Strikers**.
 
 ## Requirements
 
-- **CrossOver 26.2** (the stable release — **not** CrossOver Preview), Apple Silicon
-  (macOS). The binaries are built against 26.2's Wine 11.0 / GStreamer 1.24.5 and are
-  version-specific; the patcher refuses other builds.
-- Use the **d3dmetal** graphics backend (the only one that runs most D3D12 titles).
+- Apple Silicon Mac.
+- Stable CrossOver **26.2 or 26.3**. CrossOver Preview is not supported.
+- Official GStreamer **1.24.13** is required for Nioh, Nioh 2, Persona 5 Strikers,
+  Returnal, Ghostwire Tokyo, and WMV/VC-1 titles such as RE Engine games. It is
+  optional for supported UE5 ElectraPlayer titles and is not required for
+  Ninja Gaiden 4's bundled VP9 path.
 
 ## Install
 
-Patch a **copy** of CrossOver — never the original.
+1. Download `winevideo-Patcher-macOS.zip` from
+   [Releases](https://github.com/Jfishin/winevideo/releases).
+2. Open **winevideo Patcher** and drag your CrossOver 26.2 or 26.3 app into the
+   window. The patcher creates and patches a duplicate; the CrossOver app you
+   dropped in stays pristine.
+3. Select the bottle containing the game and click **Patch**.
+4. Launch `CrossOver-winevideo.app` from the user Applications folder.
 
-### GUI
+Only the selected bottle receives the game-specific setup. Other bottles are
+left untouched.
 
-Open `gui/winevideo Patcher.app`:
+## Tested video paths
 
-1. Drag your `CrossOver.app` onto the window — it copies it to
-   `~/Applications/CrossOver-winevideo.app` (a copy only — nothing is patched yet).
-2. Click **Scan bottles** and tick the bottle you play your VP9 game (e.g. Ninja Gaiden 4)
-   in. Games gate on the VP9 decoder MFT, which is registered *per bottle* — so the bottle
-   you play in must be patched, not just the app.
-3. Click **Patch**. This patches the app **and** the selected bottle(s) in one step — no
-   password or special permissions required.
-4. Launch `~/Applications/CrossOver-winevideo.app` and run the game.
+| Game or engine | Video path | Additional setup |
+|---|---|---|
+| Ninja Gaiden 4 | VP9/WebM through Media Foundation | Select its bottle in the patcher. |
+| Nioh | WMV3 through DirectShow/VMR9 and the D3D9-to-DXMT bridge | GStreamer 1.24.13 codec source; select its bottle. |
+| Nioh 2 | Windows Media through the D3D9-to-DXMT bridge | GStreamer 1.24.13 codec source; select its bottle. |
+| Persona 5 Strikers | ASF/VC-1 through the Koei Tecmo shared-texture path | GStreamer 1.24.13 codec source; select its bottle. |
+| Supported UE5 ElectraPlayer titles | H.264/AAC through Media Foundation | Per-game `Engine.ini`; GStreamer is optional. |
 
-The app is unsigned; clear quarantine before first launch:
-`xattr -cr "gui/winevideo Patcher.app"`.
+See the [compatibility guide](https://github.com/Jfishin/winevideo/wiki/Game-Compatibility)
+for tested games, exact requirements, and known blockers.
 
-### Command line
+## Documentation
 
-```sh
-# duplicate first (Finder, or: ditto /Applications/CrossOver.app ~/Applications/CrossOver-winevideo.app)
-patcher/patch.sh /path/to/CrossOver-copy.app [bottle ...]
-```
-
-- No bottle argument → patches the app and every existing bottle.
-- The app-level DLLs apply to all bottles; the per-bottle registry must be applied to
-  each bottle (re-run with a bottle name for bottles created later).
-
-Revert with `patcher/restore.sh /path/to/CrossOver-copy.app [bottle ...]`.
-
-## Extra video codecs — RE Engine and more (optional)
-
-Some games — Capcom **RE Engine** titles (**Devil May Cry 5**, RE2/3/8, MHW) and others —
-play movies in formats CrossOver and Apple's VideoToolbox can't decode (notably
-**WMV9 / VC-1**), and crash on the missing decoder. These need FFmpeg-backed decoders.
-
-To keep this project free of redistributed codecs, **winevideo does not ship FFmpeg** — it
-uses the decoders from *your own* GStreamer install:
-
-1. Install the official **GStreamer 1.24.13** runtime framework (default install):
-   <https://gstreamer.freedesktop.org/data/pkg/osx/1.24.13/gstreamer-1.0-1.24.13-universal.pkg>
-   It **must be 1.24.x** — newer 1.26/1.28 builds use a glib that won't load in CrossOver's
-   glib 2.78; the patcher version-checks and refuses cleanly rather than break.
-2. Patch as usual (GUI or CLI). The patcher detects your GStreamer framework, pulls
-   `libgstlibav` (+ its FFmpeg libraries) from it, thins them to x86_64 and adapts them into
-   the patched CrossOver, and reports `RE Engine codecs added from your GStreamer ✓`.
-3. If GStreamer isn't installed, this step is **skipped** — VP9 / Ninja Gaiden 4 still works
-   with no extra download. Only the FFmpeg-backed codecs require the GStreamer install.
-
-This gives `avdec_vc1` / `avdec_wmv3` / `avdec_wmav2` (WMV/VC-1/WMA) plus H.264/AAC/AC-3, so
-RE Engine movies play. The codec binaries are the GStreamer Foundation's, taken from your
-machine at patch time — this repo redistributes none of them.
-
-## How a patched app is produced
-
-The patcher copies prebuilt artifacts (`patcher/payload/`) into the app, ad-hoc signs the
-added libraries, registers the VP9 decoder MFT and `.webm`/`.mkv`/`.msd` byte-stream
-handlers in the bottle registry, then re-seals the bundle. To avoid needing an admin
-password or Full Disk Access, it stages the copy as a plain **folder** (macOS App
-Management only guards real `.app` bundles), patches and re-seals it there as the normal
-user, then renames it to `.app`. The macOS-specific steps (copy with `ditto`, strip
-quarantine, ad-hoc re-seal **without** `--deep` to preserve Wine's entitlements, and wait
-for Wine's registry flush) are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-## Repository layout
-
-| Path | Contents |
-|------|----------|
-| `patcher/` | Self-contained patcher: `patch.sh`, `restore.sh`, and `payload/` (prebuilt DLLs/plugins/deps + registry) |
-| `gui/` | SwiftUI front-end (`WineVideoPatcher.swift`) and `build-app.sh` |
-| `build/` | Scripts and patches to rebuild the Wine DLLs from CrossOver 26.2 source |
-| `build/patches/` | Wine source patches (VP9/AV1 caps, VP9 decoder MFT, mfplat BGRA fallback, build guards) |
-| `docs/` | Architecture and technical notes |
-| `mf_probe*.c`, `mft_probe.c` | Standalone test harnesses (decode probe, MFT-enumeration probe, D3D-backed probes) |
-
-## Building from source
-
-The payload is prebuilt, so rebuilding is only needed to modify the Wine DLLs. See
-[build/README.md](build/README.md). The Wine source patches are in `build/patches/`.
-
-## Scope and limitations
-
-- Covers games that play video through **Windows Media Foundation** (`IMFSourceReader`),
-  the common path for non-Unreal titles.
-- **Unreal Engine 5 titles that use ElectraPlayer** now have their cutscenes **decoded** by this
-  patcher, but Electra also needs one console variable set per game (the patcher can't set it
-  automatically). Unreal creates `GameUserSettings.ini` on its own but not `Engine.ini`, so create an
-  `Engine.ini` at `%LOCALAPPDATA%\<Project>\Saved\Config\Windows\Engine.ini` (in CrossOver this is
-  inside the bottle's `drive_c/users/<user>/AppData/Local/…`; `<Project>` is the game's own name, taken
-  from its `<Project>-Win64-Shipping.exe`) containing:
-
-  ```ini
-  [SystemSettings]
-  Electra.Win.H264UseOldOutputPath=1
-  Electra.Win.H265UseOldOutputPath=1
-  ```
-
-  Use the `Engine.ini` form only — the `-dpcvars` launch-option form crashes. This applies only to
-  Electra titles; UE5 games that play video through other paths are not covered. Some titles may also
-  require Apple's Game Porting Toolkit 4.x graphics backend.
-- The d3dmetal NV12→BGRA fallback may render some cutscenes with incorrect colors: it
-  prioritizes crash-free playback over color accuracy. A complete fix for NV12 video
-  textures belongs in the D3D11→Metal backend itself.
+- [Installation guide](https://github.com/Jfishin/winevideo/wiki/Installation)
+- [Codecs and GStreamer](https://github.com/Jfishin/winevideo/wiki/Codecs-and-GStreamer)
+- [Nioh series and Persona 5 Strikers bridge](https://github.com/Jfishin/winevideo/wiki/Nioh-and-Persona-5-Strikers)
+- [UE5 ElectraPlayer setup](https://github.com/Jfishin/winevideo/wiki/UE5-ElectraPlayer)
+- [Architecture](https://github.com/Jfishin/winevideo/wiki/How-It-Works)
+- [Troubleshooting](https://github.com/Jfishin/winevideo/wiki/Troubleshooting)
+- [Building and patch provenance](https://github.com/Jfishin/winevideo/wiki/Building-and-Patch-Provenance)
 
 ## Licensing
 
-The patcher's own scripts and harnesses in this repository are provided as-is. The
-prebuilt payload consists of Wine DLLs rebuilt from Wine source and GStreamer plugins +
-their dependencies, all derived from LGPL projects (Wine, GStreamer, libvpx, etc.).
-winevideo patches an existing, separately-licensed **CrossOver 26.2** install — you must
-supply your own.
+The prebuilt payload contains modified Wine components and open-source
+GStreamer/libvpx components. Corresponding Wine patches and provenance are
+provided in this repository. winevideo does not ship FFmpeg/libgstlibav; the
+patcher can copy those libraries from the user's own GStreamer installation.
 
 ## Disclaimer
 
-This is an unofficial, community modification of CrossOver. It is provided **as-is, with
-no warranty of any kind**, and you use it **entirely at your own risk**. The authors are
-not liable for any damage, data loss, or broken installs resulting from its use. Always
-patch a *separate copy* of CrossOver and keep your original install untouched.
+This is an unofficial community modification supplied as-is, without warranty.
+Always patch a duplicate CrossOver application. Do not ask CodeWeavers to
+support a modified CrossOver copy.
 
-- **Support is best-effort.** This is a hobby project shared as-is, so there's no
-  guarantee of support, fixes, or updates. Feel free to open an issue — just know that
-  replies may be slow or may not come.
-- **No CodeWeavers support for a patched CrossOver.** CodeWeavers supports CrossOver only
-  in its original, unmodified form. Do **not** contact CodeWeavers or use their support
-  channels for problems with a patched copy, and do not report bugs to them that occur on a
-  patched install. If you want official support, run a stock, unpatched CrossOver.
-- **License compliance is your responsibility.** Modifying CrossOver may fall outside the
-  terms of your CrossOver license. Ensuring your use complies with CodeWeavers' license
-  terms is up to you.
-- **Not affiliated.** winevideo is not affiliated with, authorized by, or endorsed by
-  CodeWeavers, Apple, or any game publisher. "CrossOver" is a trademark of CodeWeavers;
-  all other names and trademarks are the property of their respective owners.
+winevideo is not affiliated with or endorsed by CodeWeavers, Apple, or any game
+publisher. CrossOver and all game names remain trademarks of their respective
+owners.
 
 ## AI disclosure
 
-This project — its code, scripts, and documentation — is **fully AI-generated**,
-human-steered, and human-tested. Review the changes before running them.
+The project is AI-generated, human-directed, and tested on real games and
+reproducible harnesses. Review the source and patches before use.
 
 ## Credits
 
-winevideo builds on the work of several projects:
+- **[CrossOver](https://www.codeweavers.com/crossover) by CodeWeavers** provides
+  the Wine distribution and macOS integration that winevideo patches. Users
+  supply their own CrossOver app; winevideo only modifies a duplicate.
+- **[Wine](https://www.winehq.org/)** supplies the Windows compatibility and
+  media implementations modified by the included source patches.
+- **[Valve's Proton](https://github.com/ValveSoftware/Proton)** is the upstream
+  source of the Wine VP9 work ported into the project.
+- **[GE-Proton](https://github.com/GloriousEggroll/proton-ge-custom)** provided
+  additional Wine media integration patterns and references used during the
+  broader codec investigation.
+- **[GStreamer](https://gstreamer.freedesktop.org/)** and
+  **[libvpx](https://github.com/webmproject/libvpx)** provide the open-source
+  demuxing and VP9 components used by the redistributable payload. Optional
+  FFmpeg-backed codecs come from the user's own GStreamer installation.
+- **[CXPatcher](https://github.com/italomandara/CXPatcher)** informed the
+  drag-and-drop duplication, quarantine, and macOS application-patching model.
 
-- **[CrossOver](https://www.codeweavers.com/crossover) by CodeWeavers** — the Wine
-  distribution this patches, and the best Wine experience on macOS. Everything here runs on
-  top of CodeWeavers' work bringing Windows games to the Mac.
-- **[GE-Proton](https://github.com/GloriousEggroll/proton-ge-custom) (GloriousEggroll)** —
-  referenced for its excellent video/codec-related Wine work, which informed the
-  winegstreamer + Media Foundation approach used here.
-- **[CXPatcher](https://github.com/italomandara/CXPatcher)** — referenced for the
-  drag-and-drop app-patching model and for handling macOS's quarantine and code-signing
-  quirks that a redistributable patched app has to deal with.
-- **[Wine](https://www.winehq.org/), [GStreamer](https://gstreamer.freedesktop.org/) (and
-  its dependencies), and [libvpx](https://github.com/webmproject/libvpx)** — the upstream
-  open-source projects the patch is actually built from: the rebuilt Wine DLLs, the
-  GStreamer VP9/Matroska plugins, and the VP9 decoder itself. See [Licensing](#licensing).
-
-winevideo is an independent, unofficial project and is not affiliated with or endorsed by
-any of the above.
+Detailed patch provenance and licensing are maintained in the wiki and source
+manifest.

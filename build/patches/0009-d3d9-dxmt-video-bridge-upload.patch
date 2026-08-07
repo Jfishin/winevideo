@@ -1,0 +1,174 @@
+diff --git a/dlls/d3d9/d3d9_private.h b/dlls/d3d9/d3d9_private.h
+index 6f46a59..920dee2 100644
+--- a/dlls/d3d9/d3d9_private.h
++++ b/dlls/d3d9/d3d9_private.h
+@@ -179,6 +179,8 @@ struct d3d9_surface
+     struct d3d9_texture *texture;
+     struct wined3d_swapchain *swapchain;
+     struct d3d9_dxmt_video_surface *dxmt_video_surface;
++    const void *dxmt_video_map_data;
++    UINT dxmt_video_map_pitch;
+ };
+ 
+ struct wined3d_rendertarget_view *d3d9_surface_acquire_rendertarget_view(struct d3d9_surface *surface);
+diff --git a/dlls/d3d9/dxmt_video_bridge.c b/dlls/d3d9/dxmt_video_bridge.c
+index 55c5e24..c149cc2 100644
+--- a/dlls/d3d9/dxmt_video_bridge.c
++++ b/dlls/d3d9/dxmt_video_bridge.c
+@@ -28,6 +28,9 @@ struct d3d9_dxmt_video_surface
+     ID3D11Device *device;
+     ID3D11DeviceContext *context;
+     ID3D11Texture2D *texture;
++    ID3D11Query *completion_query;
++    UINT upload_count;
++    BOOL upload_failure_logged;
+ };
+ 
+ BOOL d3d9_dxmt_video_bridge_enabled(void)
+@@ -56,6 +59,8 @@ void d3d9_dxmt_video_surface_destroy(struct d3d9_dxmt_video_surface *surface)
+     TRACE("d3d9-video-bridge: destroying sidecar %p.\n", surface);
+     if (surface->texture)
+         ID3D11Texture2D_Release(surface->texture);
++    if (surface->completion_query)
++        ID3D11Query_Release(surface->completion_query);
+     if (surface->context)
+         ID3D11DeviceContext_Release(surface->context);
+     if (surface->device)
+@@ -70,6 +75,7 @@ HRESULT d3d9_dxmt_video_surface_create(UINT width, UINT height,
+         HANDLE *shared_handle)
+ {
+     D3D11_TEXTURE2D_DESC desc = {0};
++    D3D11_QUERY_DESC query_desc = {D3D11_QUERY_EVENT, 0};
+     struct d3d9_dxmt_video_surface *surface;
+     PFN_D3D11_CREATE_DEVICE create_device;
+     IDXGIResource *resource = NULL;
+@@ -103,6 +109,12 @@ HRESULT d3d9_dxmt_video_surface_create(UINT width, UINT height,
+         WARN("d3d9-video-bridge: D3D11 device creation failed, hr %#lx.\n", hr);
+         goto failed;
+     }
++    if (FAILED(hr = ID3D11Device_CreateQuery(surface->device, &query_desc,
++            &surface->completion_query)))
++    {
++        WARN("d3d9-video-bridge: completion query creation failed, hr %#lx.\n", hr);
++        goto failed;
++    }
+ 
+     desc.Width = width;
+     desc.Height = height;
+@@ -153,3 +165,62 @@ failed:
+     *shared_handle = NULL;
+     return hr;
+ }
++
++HRESULT d3d9_dxmt_video_surface_upload(
++        struct d3d9_dxmt_video_surface *surface,
++        const void *pixels, UINT row_pitch)
++{
++    HRESULT hr;
++    ULONGLONG deadline;
++    BOOL complete;
++
++    ID3D11DeviceContext_UpdateSubresource(surface->context,
++            (ID3D11Resource *)surface->texture, 0, NULL, pixels,
++            row_pitch, 0);
++    ID3D11DeviceContext_End(surface->context,
++            (ID3D11Asynchronous *)surface->completion_query);
++    ID3D11DeviceContext_Flush(surface->context);
++    ++surface->upload_count;
++
++    deadline = GetTickCount64() + 1000;
++    do
++    {
++        complete = FALSE;
++        hr = ID3D11DeviceContext_GetData(surface->context,
++                (ID3D11Asynchronous *)surface->completion_query,
++                &complete, sizeof(complete),
++                D3D11_ASYNC_GETDATA_DONOTFLUSH);
++        if (FAILED(hr) || GetTickCount64() >= deadline)
++            break;
++        if (hr != S_OK || !complete)
++            SwitchToThread();
++    } while (hr != S_OK || !complete);
++
++    if (hr != S_OK || !complete)
++    {
++        if (SUCCEEDED(hr))
++            hr = DXGI_ERROR_WAS_STILL_DRAWING;
++        if (!surface->upload_failure_logged)
++        {
++            WARN("d3d9-video-bridge: upload completion failed after %u frame(s), hr %#lx.\n",
++                    surface->upload_count, hr);
++            surface->upload_failure_logged = TRUE;
++        }
++        return hr;
++    }
++
++    if (FAILED(hr = ID3D11Device_GetDeviceRemovedReason(surface->device)))
++    {
++        if (!surface->upload_failure_logged)
++        {
++            WARN("d3d9-video-bridge: upload failed after %u frame(s), hr %#lx.\n",
++                    surface->upload_count, hr);
++            surface->upload_failure_logged = TRUE;
++        }
++        return hr;
++    }
++
++    TRACE("d3d9-video-bridge: uploaded frame %u with pitch %u.\n",
++            surface->upload_count, row_pitch);
++    return S_OK;
++}
+diff --git a/dlls/d3d9/dxmt_video_bridge.h b/dlls/d3d9/dxmt_video_bridge.h
+index 549fdd9..4877357 100644
+--- a/dlls/d3d9/dxmt_video_bridge.h
++++ b/dlls/d3d9/dxmt_video_bridge.h
+@@ -14,6 +14,9 @@ BOOL d3d9_dxmt_video_bridge_matches(BOOL extended, UINT width, UINT height,
+ HRESULT d3d9_dxmt_video_surface_create(UINT width, UINT height,
+         D3DFORMAT format, struct d3d9_dxmt_video_surface **out,
+         HANDLE *shared_handle);
++HRESULT d3d9_dxmt_video_surface_upload(
++        struct d3d9_dxmt_video_surface *surface,
++        const void *pixels, UINT row_pitch);
+ void d3d9_dxmt_video_surface_destroy(struct d3d9_dxmt_video_surface *surface);
+ 
+ #endif
+diff --git a/dlls/d3d9/surface.c b/dlls/d3d9/surface.c
+index a88ac0f..c60ff44 100644
+--- a/dlls/d3d9/surface.c
++++ b/dlls/d3d9/surface.c
+@@ -245,6 +245,9 @@ static HRESULT WINAPI d3d9_surface_LockRect(IDirect3DSurface9 *iface,
+     TRACE("iface %p, locked_rect %p, rect %s, flags %#lx.\n",
+             iface, locked_rect, wine_dbgstr_rect(rect), flags);
+ 
++    surface->dxmt_video_map_data = NULL;
++    surface->dxmt_video_map_pitch = 0;
++
+     if (rect)
+         wined3d_box_set(&box, rect->left, rect->top, rect->right, rect->bottom, 0, 1);
+ 
+@@ -255,6 +258,11 @@ static HRESULT WINAPI d3d9_surface_LockRect(IDirect3DSurface9 *iface,
+     {
+         locked_rect->Pitch = map_desc.row_pitch;
+         locked_rect->pBits = map_desc.data;
++        if (surface->dxmt_video_surface)
++        {
++            surface->dxmt_video_map_data = map_desc.data;
++            surface->dxmt_video_map_pitch = map_desc.row_pitch;
++        }
+     }
+ 
+     if (hr == E_INVALIDARG)
+@@ -269,6 +277,13 @@ static HRESULT WINAPI d3d9_surface_UnlockRect(IDirect3DSurface9 *iface)
+ 
+     TRACE("iface %p.\n", iface);
+ 
++    if (surface->dxmt_video_surface && surface->dxmt_video_map_data)
++        d3d9_dxmt_video_surface_upload(surface->dxmt_video_surface,
++                surface->dxmt_video_map_data,
++                surface->dxmt_video_map_pitch);
++    surface->dxmt_video_map_data = NULL;
++    surface->dxmt_video_map_pitch = 0;
++
+     wined3d_mutex_lock();
+     hr = wined3d_resource_unmap(wined3d_texture_get_resource(surface->wined3d_texture), surface->sub_resource_idx);
+     if (SUCCEEDED(hr) && surface->texture)

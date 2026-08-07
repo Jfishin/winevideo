@@ -1,14 +1,13 @@
-// WineVideoPatcher — small drag-and-drop GUI to patch a CrossOver 26.2 app with
-// the winevideo VP9/video fix.
+// WineVideoPatcher — GUI for CrossOver 26.2 & 26.3 video fixes.
 //
 // Flow (no admin password, no special permissions):
 //   1. Drop a CrossOver.app -> it is DUPLICATED to a staging FOLDER
 //      "~/Applications/CrossOver-winevideo" (note: not a .app yet).
-//   2. Scan bottles, tick the bottle your game runs in.
+//   2. Scan bottles, select the one Steam bottle your games run in.
 //   3. Patch -> patch.sh patches + signs the folder as the normal user (macOS
 //      "App Management" only protects real .app bundles, so a folder is writable
 //      without elevation), renames it to "CrossOver-winevideo.app", and registers
-//      VP9 in the selected bottle(s) — all in one step.
+//      the video setup in that selected bottle — all in one step.
 //
 // The actual patching is delegated to the bundled patch.sh + payload (in
 // Contents/Resources), so the GUI is just a thin front-end.
@@ -22,7 +21,7 @@ final class Model: ObservableObject {
     @Published var patched: Bool = false          // true once the .app exists (patched)
     @Published var bottles: [String] = []
     @Published var selected: Set<String> = []
-    @Published var log: String = "Drop a CrossOver.app above to begin.\n"
+    @Published var log: String = "Supports CrossOver 26.2 and 26.3.\nDrop a CrossOver.app above to begin.\n"
     @Published var busy: Bool = false
     @Published var stage: String = ""
 
@@ -126,14 +125,16 @@ final class Model: ObservableObject {
                 self.append("❌ Nothing to patch — drag CrossOver.app above first.")
                 return
             }
-            // Success signal: the patched .app exists and our plugin landed.
-            let landed = (try? Data(contentsOf: URL(fileURLWithPath: app + "/Contents/SharedSupport/CrossOver/lib64/gstreamer-1.0/libgstvpx.dylib")))?.count ?? 0 > 0
+            // Success signal: the patched .app exists and both core payloads landed.
+            let vp9Landed = (try? Data(contentsOf: URL(fileURLWithPath: app + "/Contents/SharedSupport/CrossOver/lib64/gstreamer-1.0/libgstvpx.dylib")))?.count ?? 0 > 0
+            let d3d9Landed = (try? Data(contentsOf: URL(fileURLWithPath: app + "/Contents/SharedSupport/CrossOver/lib/wine/x86_64-windows/d3d9.dll")))?.count ?? 0 > 0
+            let landed = vp9Landed && d3d9Landed
             DispatchQueue.main.async {
                 self.busy = false; self.stage = ""
                 if landed {
                     self.patched = true
                     let appURL = URL(fileURLWithPath: app)
-                    let extra = bottles.isEmpty ? " (no bottle selected — VP9 games like Ninja Gaiden 4 need their bottle patched: Scan bottles, tick it, Patch again)" : " + bottle(s): \(bottles.sorted().joined(separator: ", "))"
+                    let extra = bottles.isEmpty ? " (app only; select the Steam bottle and Patch again for game setup)" : " + bottle: \(bottles.sorted().joined(separator: ", "))"
                     self.append("\n✅ PATCHED: \(appURL.lastPathComponent)\(extra)\n   Launch it from ~/Applications and play. (revealing in Finder)")
                     NSWorkspace.shared.activateFileViewerSelecting([appURL])
                 } else {
@@ -167,7 +168,7 @@ struct DropZone: View {
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(hovering ? 0.12 : 0.05)))
             VStack(spacing: 6) {
                 Image(systemName: "wineglass").font(.system(size: 28))
-                Text(m.stagePath == nil ? "Drag your CrossOver 26.2 app here"
+                Text(m.stagePath == nil ? "Drag your CrossOver 26.2 or 26.3 app here"
                      : (m.patched ? "Patched ✓" : "Copied — not patched yet"))
                     .font(.headline)
                 Text(m.stagePath == nil ? "copies it to ~/Applications/CrossOver-winevideo.app"
@@ -190,13 +191,15 @@ struct ContentView: View {
     @StateObject var m = Model()
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("winevideo — CrossOver 26.2 VP9 / video patcher").font(.title3).bold()
+            Text("winevideo — CrossOver 26.2 & 26.3 video patcher").font(.title3).bold()
+            Text("VP9/MF + Electra + D3D9-to-DXMT cutscene support")
+                .font(.caption).foregroundColor(.secondary)
             DropZone(m: m)
             Text(m.stagePath == nil
-                 ? "Step 1 — drag your CrossOver 26.2 app here. This only makes a copy; it does NOT patch anything yet."
+                 ? "Step 1 — drag CrossOver 26.2 or 26.3 here. This only makes a copy."
                  : (m.patched
-                    ? "Done. Launch CrossOver-winevideo.app from ~/Applications. To add another game's bottle: Scan bottles, tick it, Patch."
-                    : "Copied — NOT patched yet.\nStep 2 — click “Scan bottles” and tick the bottle your game runs in.\nStep 3 — click “Patch” (patches the app AND the selected bottle together — no password needed)."))
+                    ? "Done. Launch CrossOver-winevideo.app from ~/Applications. To prepare another bottle: Scan bottles, select it, then Patch."
+                    : "Copied — NOT patched yet.\nStep 2 — select the bottle you want to prepare.\nStep 3 — click “Patch” — no password needed."))
                 .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 Button { m.scanBottles() } label: { Label("Scan bottles", systemImage: "magnifyingglass").frame(maxWidth: .infinity) }
@@ -206,13 +209,13 @@ struct ContentView: View {
                     .disabled(m.busy || m.stagePath == nil)
             }
             if !m.bottles.isEmpty {
-                Text("Tick the bottle your VP9 game runs in, then click Patch:").font(.caption).foregroundColor(.secondary)
+                Text("Select one bottle to prepare:").font(.caption).foregroundColor(.secondary)
                 ScrollView {
                     VStack(alignment: .leading) {
                         ForEach(m.bottles, id: \.self) { b in
                             Toggle(b, isOn: Binding(
                                 get: { m.selected.contains(b) },
-                                set: { on in if on { m.selected.insert(b) } else { m.selected.remove(b) } }))
+                                set: { on in if on { m.selected = [b] } else { m.selected.remove(b) } }))
                         }
                     }
                 }.frame(height: 90)

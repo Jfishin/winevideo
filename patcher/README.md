@@ -1,86 +1,24 @@
-# winevideo patcher — VP9 video for CrossOver 26.2 (macOS, Apple Silicon)
+# winevideo patcher internals
 
-Adds **VP9 / VP8 / WebM / Matroska** video support to CrossOver 26.2 and fixes the
-d3dmetal crash on Media Foundation video, so games that play VP9 cutscenes work.
+The user-facing workflow is documented in the repository [README](../README.md)
+and the [installation wiki](https://github.com/Jfishin/winevideo/wiki/Installation).
 
-## What it does
+`patch.sh` installs the application payload into a duplicate CrossOver 26.2 or
+26.3 app. When a bottle name is provided, it also registers the VP9 Media
+Foundation components, selects DXMT, and enables the opt-in D3D9 video bridge in
+that bottle.
 
-- Adds a VP9/VP8 decoder + WebM/Matroska demux to CrossOver's media pipeline.
-- Registers a VP9 decoder MFT so games' "is VP9 supported?" check passes.
-- Patches `mfplat` so the d3dmetal D3D11 path falls back to a supported texture format
-  instead of crashing (`invalid pixelFormat (0)`).
-
-See `../docs/ARCHITECTURE.md` for details.
-
-## Requirements
-
-CrossOver **26.2**, Apple Silicon. The binaries are built against 26.2's Wine 11.0 /
-GStreamer 1.24.5 and are version-specific.
-
-## GUI
-
-Open `../gui/winevideo Patcher.app` (build it with `../gui/build-app.sh` if needed):
-
-1. Drag your `CrossOver.app` in → it copies it to `~/Applications/CrossOver-winevideo.app`
-   (a copy only — nothing is patched yet).
-2. Click **Scan bottles** and tick the bottle you play your VP9 game in (required — games
-   gate on the per-bottle VP9 decoder MFT, so the bottle must be patched too).
-3. Click **Patch**. This patches the app **and** the selected bottle(s) together — no
-   password or special permissions needed.
-4. Launch `~/Applications/CrossOver-winevideo.app`.
-
-Clear quarantine on the unsigned patcher app before first launch:
-`xattr -cr "../gui/winevideo Patcher.app"`.
-
-## Command line
-
-Patch a **copy** of CrossOver:
+The GUI invokes the same script. Advanced command-line use accepts a staging
+folder without an `.app` extension:
 
 ```sh
-# duplicate first, e.g.:  ditto /Applications/CrossOver.app ~/Applications/CrossOver-winevideo.app
-./patch.sh /full/path/to/CrossOver-copy.app            # app + every existing bottle
-./patch.sh /full/path/to/CrossOver-copy.app SteamBottle  # app + only this bottle
+patcher/patch.sh /path/to/CrossOver-winevideo "Bottle Name"
 ```
 
-Pass a path **without** a `.app` extension (e.g. `…/CrossOver-winevideo`) to stage it as a
-plain folder: it is patched + re-sealed as the normal user (no admin / Full Disk Access —
-macOS App Management only guards real `.app` bundles) and renamed to `.app` at the end.
-The GUI uses this. `patch.sh` also accepts `--app-only` / `--bottle-only` to run a single
-phase.
+The staging folder is patched, re-sealed, and renamed to
+`CrossOver-winevideo.app`. With no bottle argument, only the application payload
+is installed. `--bottle-only` prepares another bottle using an already-patched
+app.
 
-After patching, the app is de-quarantined and re-sealed (ad-hoc) so it launches normally.
-Only stable **CrossOver 26.2** is supported; the patcher refuses other builds (incl.
-CrossOver Preview, which has a different layout).
-
-### Bottles
-
-- The **app-level DLLs** apply to every bottle automatically (patch once).
-- The **per-bottle registration** (VP9 decoder MFT + `.webm`/`.mkv`/`.msd` handlers) must
-  be applied to each bottle. Re-run with a bottle's name for bottles created later.
-- Patch a bottle after the game is installed (so the bottle is initialized). The patcher
-  prints `VP9 decoder MFT registered ✓` or a warning to re-run.
-
-### Extra codecs (RE Engine: DMC5, RE2/3/8, MHW)
-
-These games use **WMV/VC-1** movies that need FFmpeg-backed decoders. winevideo ships **no
-FFmpeg**; if you install the official **GStreamer 1.24.13** framework
-(<https://gstreamer.freedesktop.org/data/pkg/osx/1.24.13/gstreamer-1.0-1.24.13-universal.pkg>,
-must be 1.24.x), `patch.sh` auto-detects it, pulls `libgstlibav` + its FFmpeg libs from
-**your** install, thins to x86_64 and adapts them in, and prints
-`RE Engine codecs added from your GStreamer ✓`. Not installed → step skipped, VP9 still works.
-
-## Undo
-
-```sh
-./restore.sh /full/path/to/CrossOver-copy.app [bottle ...]
-```
-
-Originals are backed up alongside the app at `<app>.winevideo-backup/`.
-
-## Scope and limitations
-
-- Covers games using **Windows Media Foundation** (`IMFSourceReader`).
-- **Unreal Engine titles using ElectraPlayer** are not covered (separate video stack);
-  workaround is to disable the game's startup/cutscene movies.
-- The NV12→BGRA fallback may render some cutscenes with off colors; the game running
-  without crashing is the goal.
+`restore.sh` restores the backed-up application payload and the selected
+bottle's saved environment values.

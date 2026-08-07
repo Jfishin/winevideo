@@ -44,6 +44,8 @@ All under Rosetta / x86_64. Paths come from `env.sh`.
 | `0005-winegstreamer-no-d3d-awareness-on-macos` | UE ElectraPlayer takes its software decode path on macOS |
 | `0006-winegstreamer-aac-codec-data-double-strip` | synthesize a missing AAC AudioSpecificConfig |
 | `0007-winegstreamer-2d-output-samples-macos` | deliver IMF2DBuffer-capable output samples on macOS |
+| `0008-d3d9-dxmt-video-bridge-handle` | add the opt-in D3D9-to-DXMT video bridge handle and shared-texture sidecar |
+| `0009-d3d9-dxmt-video-bridge-upload` | upload VMR9-presented D3D9 frames into the D3D11/DXMT bridge texture |
 
 See `SOURCES.md` for per-patch attribution.
 
@@ -59,10 +61,9 @@ work on a copy.
 
 ## Test harnesses
 
-`mf_probe.c` (decode), `mft_probe.c` (MFTEnumEx + MFT instantiation), `mf_probe_d3d*.c`
-(D3D-backed paths), `mf_probe_tex.c` (texture format support). Build with llvm-mingw and
-run via the app's `bin/wine` with `CX_BOTTLE=<bottle>`. Always `wineserver -k` between
-runs.
+Probe sources and reusable runners live under `tests/`. Build the Windows probes
+with llvm-mingw and run them through the app's `bin/wine` with
+`CX_BOTTLE=<bottle>`. Always `wineserver -k` between runs.
 
 ## Notes
 

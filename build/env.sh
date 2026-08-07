@@ -6,6 +6,11 @@ export WV_ROOT="$HOME/.local/winevideo"
 export WV_SRC="$WV_ROOT/src/wine"
 export WV_BUILD="$WV_ROOT/build/wine"
 
+# Keep compiler diagnostics and Wine TRACE strings independent of the local
+# checkout location.
+export CFLAGS="${CFLAGS:-} -ffile-prefix-map=$WV_SRC=/usr/src/winevideo -fdebug-prefix-map=$WV_SRC=/usr/src/winevideo"
+export CXXFLAGS="${CXXFLAGS:-} -ffile-prefix-map=$WV_SRC=/usr/src/winevideo -fdebug-prefix-map=$WV_SRC=/usr/src/winevideo"
+
 # Reused cxGE assets (read-only)
 export LLVM_MINGW="$HOME/.local/cxge/toolchains/llvm-mingw"
 export FFMPEG_INSTALL="$HOME/.local/cxge/install/ffmpeg"   # FFmpeg 7.1 (matches CX26 libavcodec.61)

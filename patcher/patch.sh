@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  winevideo VP9 patcher for CrossOver 26.2  (drag-and-drop friendly)
+#  winevideo video patcher for CrossOver 26.2 & 26.3
 # =============================================================================
-#  Adds real VP9 (+VP8/WebM/Matroska) video support to a CrossOver 26.2 app and
+#  Adds real VP9 (+VP8/WebM/Matroska) video support to a CrossOver app and
 #  fixes the d3dmetal "NV12 video texture" crash, so Media-Foundation video
 #  games (e.g. Ninja Gaiden 4) play their cutscenes. Also adds the UE5 Electra
 #  DECODE fixes (winegstreamer) so UE5 titles (e.g. Screamer, Void Breaker) can
@@ -11,13 +11,12 @@
 #    [SystemSettings]
 #    Electra.Win.H264UseOldOutputPath=1
 #    Electra.Win.H265UseOldOutputPath=1
-#  See WORKING-AND-BROKEN-GAMES.md for the exact per-game setup.
 #
 #  USAGE:
 #    1. Duplicate your CrossOver.app (keep the original pristine).
-#    2. Run:  ./patch.sh /path/to/CrossOver-copy.app  [bottle ...]
-#       - no bottle args  -> patches the APP + EVERY existing bottle
-#       - bottle args      -> patches the APP + only those bottles
+#    2. Run:  ./patch.sh /path/to/CrossOver-copy.app  [one bottle]
+#       - no bottle arg -> patches the APP only
+#       - bottle arg    -> patches the APP + that selected bottle
 #
 #  STAGING (no admin / no Full Disk Access needed): if the path you pass does
 #  NOT end in ".app" (e.g. ".../CrossOver-winevideo"), it is treated as a plain
@@ -25,8 +24,8 @@
 #  folder can be patched + signed as the normal user with no elevation; this
 #  script then renames it to "<name>.app" at the very end. The GUI uses this.
 #
-#  The APP-level DLLs apply to all bottles. The per-bottle registry (VP9 decoder
-#  + .webm/.mkv/.msd handlers) is required and is stamped into each bottle.
+#  The APP-level DLLs apply to all bottles. Per-bottle VP9 registration and the
+#  DXMT bridge environment are only stamped into the explicitly selected bottle.
 #  Re-run with a bottle name to patch a newly-created bottle later.
 #
 #  Reversible:  ./restore.sh /path/to/CrossOver-copy.app [bottle ...]
@@ -36,7 +35,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PAY="$HERE/payload"
 COMPAT="$PAY/patch_macho_compat.py"
 GBSH='{317df618-5e5a-468a-9f15-d827a9a08162}'   # CLSID_GStreamerByteStreamHandler
-BOTTLES="$HOME/Library/Application Support/CrossOver/Bottles"
+BOTTLES="${WINEVIDEO_BOTTLES_DIR:-$HOME/Library/Application Support/CrossOver/Bottles}"
+D3D9_SHA="b5e3dd0ed178b79ffbc391e1ca7a5de28daf625d2c19453f9f5a21e6002abddb"
 
 # Optional mode flag (must be first). Kept for compatibility / CLI:
 #   --app-only    = only patch the app files (+ finalize/rename)
@@ -55,7 +55,7 @@ SEL_BOTTLES=("$@")
 # rename to <name>.app after patching+signing. FINAL is the eventual .app path;
 # the backup is always keyed off FINAL so restore.sh finds it.
 case "$APP" in *.app) STAGE=0; FINAL="$APP";; *) STAGE=1; FINAL="${APP}.app";; esac
-BK="${FINAL}.winevideo-backup"; mkdir -p "$BK"   # kept OUTSIDE the bundle (never affects the seal)
+BK="${FINAL}.winevideo-backup"   # kept OUTSIDE the bundle (never affects the seal)
 FINAL_LIB64="$FINAL/Contents/SharedSupport/CrossOver/lib64"   # rpath target = the EVENTUAL .app path
 # Optional RE Engine / extra codecs come from the USER's own official GStreamer 1.24.x
 # framework (we never ship FFmpeg). If it isn't installed, that step is simply skipped.
@@ -69,8 +69,21 @@ compute_paths(){
 }
 compute_paths
 
-echo "=== winevideo VP9 patcher -> $FINAL ==="
+echo "=== winevideo video patcher -> $FINAL ==="
 [ "$STAGE" = 1 ] && echo "    (staging as a folder, no elevation needed; will rename to .app at the end)"
+
+# Validate version and layout before changing the app or creating a backup.
+VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || true)"
+case "$VER" in
+  26.2*|26.3*) echo "    CrossOver $VER (supported target)" ;;
+  *) echo "❌ Unsupported CrossOver version${VER:+ $VER}; this patcher supports 26.2 and 26.3 only."; exit 3 ;;
+esac
+if [ ! -d "$PLUGDIR" ]; then
+  echo "❌ Unsupported CrossOver layout — missing $PLUGDIR"
+  echo "   CrossOver Preview and other Wine/GStreamer layouts are not supported."
+  exit 3
+fi
+mkdir -p "$BK"
 
 # Remove quarantine so macOS doesn't SIGKILL ("Killed: 9") the wine binaries in a
 # copied/downloaded bundle. NEVER codesign --deep the app: that strips CrossOver's
@@ -123,24 +136,15 @@ pull_gst_lib(){ local name="$1"
 #  APP FILES + FINALIZE (verify, re-seal, rename staging folder -> .app)
 # ---------------------------------------------------------------------------
 if [ "$MODE" != bottle ]; then
-  echo "--- app: winegstreamer (VP9/AV1 + UE5 Electra decode) + mfplat (NV12->BGRA fallback) ---"
+  echo "--- app: winegstreamer + mfplat + D3D9-to-DXMT video bridge ---"
   backup "winegstreamer.dll" "$WINE_PE/winegstreamer.dll"
   backup "winegstreamer.so"  "$WINE_UNIX/winegstreamer.so"
   backup "mfplat.dll"        "$WINE_PE/mfplat.dll"
+  backup "d3d9.dll"          "$WINE_PE/d3d9.dll"
   cp "$PAY/wine-pe/winegstreamer.dll" "$WINE_PE/winegstreamer.dll"
   cp "$PAY/wine-pe/mfplat.dll"        "$WINE_PE/mfplat.dll"
+  cp "$PAY/wine-pe/d3d9.dll"          "$WINE_PE/d3d9.dll"
   cp "$PAY/wine-unix/winegstreamer.so" "$WINE_UNIX/winegstreamer.so"; fix_so "$WINE_UNIX/winegstreamer.so"
-
-  # Guard: only patch a real CrossOver 26.2 layout. CrossOver Preview / other builds
-  # have no lib64/gstreamer-1.0 and ship a different Wine/GStreamer ABI, so our
-  # binaries won't load — fail clearly instead of producing a broken app.
-  if [ ! -d "$PLUGDIR" ]; then
-    VER="$(defaults read "$APP/Contents/Info" CFBundleShortVersionString 2>/dev/null)"
-    echo ""
-    echo "❌ Unsupported CrossOver build${VER:+ ($VER)} — no $(basename "$LIB64")/gstreamer-1.0 plugin dir."
-    echo "   winevideo supports the stable CrossOver 26.2 release only (not CrossOver Preview)."
-    exit 3
-  fi
 
   echo "--- app: VP9 + matroska GStreamer plugins + runtime deps ---"
   mkdir -p "$PLUGDIR"   # safety no-op once the guard above has passed
@@ -182,7 +186,7 @@ if [ "$MODE" != bottle ]; then
 
   # ---- verify the app files actually landed ----
   MISSING=""
-  for f in "$WINE_PE/winegstreamer.dll" "$WINE_PE/mfplat.dll" "$WINE_UNIX/winegstreamer.so" \
+  for f in "$WINE_PE/winegstreamer.dll" "$WINE_PE/mfplat.dll" "$WINE_PE/d3d9.dll" "$WINE_UNIX/winegstreamer.so" \
            "$PLUGDIR/libgstvpx.dylib" "$PLUGDIR/libgstmatroska.dylib" "$LIB64/libvpx.9.dylib"; do
     [ -f "$f" ] || MISSING="$MISSING\n    - $f"
   done
@@ -195,6 +199,12 @@ if [ "$MODE" != bottle ]; then
     echo "    grant Full Disk Access and re-run.)"
     exit 1
   fi
+  D3D9_ACTUAL="$(shasum -a 256 "$WINE_PE/d3d9.dll" | awk '{print $1}')"
+  if [ "$D3D9_ACTUAL" != "$D3D9_SHA" ]; then
+    echo "❌ D3D9 bridge verification failed (got $D3D9_ACTUAL)"
+    exit 1
+  fi
+  echo "    D3D9-to-DXMT bridge verified ✓"
 
   # Modifying the bundle breaks its original code-signature seal -> Finder refuses to
   # launch it ("damaged"). Re-seal ad-hoc WITHOUT --deep: rebuilds a valid
@@ -228,9 +238,22 @@ if [ "$MODE" = app ]; then echo "=== app patched: $APP (originals in $BK) ==="; 
 # ---------------------------------------------------------------------------
 #  PER-BOTTLE REGISTRY  (runs wine from the final .app; writes ~/Library only)
 # ---------------------------------------------------------------------------
+set_bottle_env(){ local conf="$1" key="$2" value="$3"
+  WV_KEY="$key" WV_VALUE="$value" perl -0pi -e '
+    my $key = quotemeta("\"$ENV{WV_KEY}\"");
+    s/^$key\s*=.*\n//mg;
+    s/(\[EnvironmentVariables\]\n)/$1\"$ENV{WV_KEY}\" = \"$ENV{WV_VALUE}\"\n/;
+  ' "$conf"
+}
+
 patch_bottle(){ local b="$1"; local dir="$BOTTLES/$b"
   [ -e "$dir/system.reg" ] || { echo "    skip $b (no system.reg)"; return; }
   echo "    bottle: $b"
+  local bottle_backup="$BK/bottles/$b" conf="$dir/cxbottle.conf"
+  mkdir -p "$bottle_backup"
+  [ -f "$bottle_backup/cxbottle.conf.before-video-bridge" ] || cp "$conf" "$bottle_backup/cxbottle.conf.before-video-bridge"
+  set_bottle_env "$conf" CX_GRAPHICS_BACKEND dxmt
+  set_bottle_env "$conf" WINE_D3D9_DXMT_VIDEO_BRIDGE 1
   export CX_BOTTLE="$b" WINEDLLOVERRIDES="mscoree,mshtml=d"
   "$BIN/wineserver" -k 2>/dev/null
   # A brand-new bottle's first wine call runs the (slow) auto-init; a real command
@@ -255,16 +278,19 @@ patch_bottle(){ local b="$1"; local dir="$BOTTLES/$b"
   "$BIN/wineserver" -k 2>/dev/null   # safe now: keys already flushed to disk
   if grep -qi "e3aaf548" "$dir/system.reg" 2>/dev/null; then echo "      VP9 decoder MFT registered ✓"
   else echo "      ⚠️ VP9 registration did NOT land in $b — run the patcher on this bottle again"; fi
+  echo "      DXMT + D3D9 video bridge enabled ✓"
 }
 
 echo "--- bottles: register VP9 decoder MFT + webm/mkv/msd handlers ---"
 if [ "${#SEL_BOTTLES[@]}" -gt 0 ]; then
   for b in "${SEL_BOTTLES[@]}"; do patch_bottle "$b"; done
 else
-  for dir in "$BOTTLES"/*/; do patch_bottle "$(basename "$dir")"; done
+  echo "    (none selected; app patched only)"
 fi
-# refresh gstreamer plugin registry so the new plugins are scanned
-find "$HOME/Library/Application Support/CrossOver" -iname "*gstreamer*registry*x86_64*" -delete 2>/dev/null
+# Refresh only the selected bottle's GStreamer registry.
+for b in "${SEL_BOTTLES[@]}"; do
+  find "$BOTTLES/$b" -iname "*gstreamer*registry*x86_64*" -delete 2>/dev/null
+done
 
 if [ "$MODE" = bottle ]; then echo "=== bottle registration done ($APP) ==="; exit 0; fi
 echo "=== DONE. Patched $APP (originals backed up in $BK). Restore with restore.sh ==="

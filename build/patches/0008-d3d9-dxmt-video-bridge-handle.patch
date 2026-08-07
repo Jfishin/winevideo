@@ -1,0 +1,275 @@
+diff --git a/dlls/d3d9/Makefile.in b/dlls/d3d9/Makefile.in
+index 5a717b1..b760f11 100644
+--- a/dlls/d3d9/Makefile.in
++++ b/dlls/d3d9/Makefile.in
+@@ -7,6 +7,7 @@ SOURCES = \
+ 	d3d9_main.c \
+ 	device.c \
+ 	directx.c \
++	dxmt_video_bridge.c \
+ 	query.c \
+ 	shader.c \
+ 	stateblock.c \
+diff --git a/dlls/d3d9/d3d9_private.h b/dlls/d3d9/d3d9_private.h
+index b1e7690..6f46a59 100644
+--- a/dlls/d3d9/d3d9_private.h
++++ b/dlls/d3d9/d3d9_private.h
+@@ -36,6 +36,7 @@
+ #include "d3d9.h"
+ #include "d3d9on12.h"
+ #include "wine/wined3d.h"
++#include "dxmt_video_bridge.h"
+ 
+ #define D3D9_MAX_VERTEX_SHADER_CONSTANTF 256
+ #define D3D9_MAX_TEXTURE_UNITS 20
+@@ -177,6 +178,7 @@ struct d3d9_surface
+     IUnknown *container;
+     struct d3d9_texture *texture;
+     struct wined3d_swapchain *swapchain;
++    struct d3d9_dxmt_video_surface *dxmt_video_surface;
+ };
+ 
+ struct wined3d_rendertarget_view *d3d9_surface_acquire_rendertarget_view(struct d3d9_surface *surface);
+diff --git a/dlls/d3d9/device.c b/dlls/d3d9/device.c
+index 5f59d10..e8a078f 100644
+--- a/dlls/d3d9/device.c
++++ b/dlls/d3d9/device.c
+@@ -1788,7 +1788,9 @@ static HRESULT WINAPI d3d9_device_CreateRenderTarget(IDirect3DDevice9Ex *iface,
+         BOOL lockable, IDirect3DSurface9 **surface, HANDLE *shared_handle)
+ {
+     struct d3d9_device *device = impl_from_IDirect3DDevice9Ex(iface);
++    struct d3d9_surface *surface_impl;
+     unsigned int access = WINED3D_RESOURCE_ACCESS_GPU;
++    HRESULT bridge_hr, hr;
+ 
+     TRACE("iface %p, width %u, height %u, format %#x, multisample_type %#x, multisample_quality %lu.\n"
+             "lockable %#x, surface %p, shared_handle %p.\n",
+@@ -1804,15 +1806,28 @@ static HRESULT WINAPI d3d9_device_CreateRenderTarget(IDirect3DDevice9Ex *iface,
+             return E_NOTIMPL;
+         }
+ 
+-        FIXME("Resource sharing not implemented, *shared_handle %p.\n", *shared_handle);
++        if (!d3d9_dxmt_video_bridge_matches(device->d3d_parent->extended,
++                width, height, format, multisample_type, lockable, shared_handle))
++            FIXME("Resource sharing not implemented, *shared_handle %p.\n", *shared_handle);
+     }
+ 
+     if (lockable)
+         access |= WINED3D_RESOURCE_ACCESS_MAP_R | WINED3D_RESOURCE_ACCESS_MAP_W;
+ 
+-    return d3d9_device_create_surface(device, 0, wined3dformat_from_d3dformat(format),
++    hr = d3d9_device_create_surface(device, 0, wined3dformat_from_d3dformat(format),
+             wined3d_multisample_type_from_d3d(multisample_type), multisample_quality, 0,
+             WINED3D_BIND_RENDER_TARGET, access, width, height, NULL, surface);
++    if (SUCCEEDED(hr) && d3d9_dxmt_video_bridge_matches(
++            device->d3d_parent->extended, width, height, format,
++            multisample_type, lockable, shared_handle))
++    {
++        surface_impl = unsafe_impl_from_IDirect3DSurface9(*surface);
++        bridge_hr = d3d9_dxmt_video_surface_create(width, height, format,
++                &surface_impl->dxmt_video_surface, shared_handle);
++        if (FAILED(bridge_hr))
++            WARN("d3d9-video-bridge: sidecar creation failed, hr %#lx.\n", bridge_hr);
++    }
++    return hr;
+ }
+ 
+ static HRESULT WINAPI d3d9_device_CreateDepthStencilSurface(IDirect3DDevice9Ex *iface, UINT width, UINT height,
+diff --git a/dlls/d3d9/dxmt_video_bridge.c b/dlls/d3d9/dxmt_video_bridge.c
+new file mode 100644
+index 0000000..55c5e24
+--- /dev/null
++++ b/dlls/d3d9/dxmt_video_bridge.c
+@@ -0,0 +1,155 @@
++/*
++ * Opt-in D3D9 render-target sidecar for DXMT video consumers.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ */
++
++#include <stdlib.h>
++#include <stdarg.h>
++#include <string.h>
++
++#define COBJMACROS
++#include "windef.h"
++#include "winbase.h"
++#include "d3d11.h"
++#include "dxgi.h"
++#include "wine/debug.h"
++
++#include "dxmt_video_bridge.h"
++
++WINE_DEFAULT_DEBUG_CHANNEL(d3d9);
++
++struct d3d9_dxmt_video_surface
++{
++    HMODULE d3d11_module;
++    ID3D11Device *device;
++    ID3D11DeviceContext *context;
++    ID3D11Texture2D *texture;
++};
++
++BOOL d3d9_dxmt_video_bridge_enabled(void)
++{
++    char value[2];
++
++    return GetEnvironmentVariableA("WINE_D3D9_DXMT_VIDEO_BRIDGE",
++            value, ARRAY_SIZE(value)) == 1 && value[0] == '1';
++}
++
++BOOL d3d9_dxmt_video_bridge_matches(BOOL extended, UINT width, UINT height,
++        D3DFORMAT format, D3DMULTISAMPLE_TYPE multisample,
++        BOOL lockable, const HANDLE *shared_handle)
++{
++    return d3d9_dxmt_video_bridge_enabled()
++            && extended && width && height && shared_handle && !*shared_handle
++            && lockable && multisample == D3DMULTISAMPLE_NONE
++            && (format == D3DFMT_A8R8G8B8 || format == D3DFMT_X8R8G8B8);
++}
++
++void d3d9_dxmt_video_surface_destroy(struct d3d9_dxmt_video_surface *surface)
++{
++    if (!surface)
++        return;
++
++    TRACE("d3d9-video-bridge: destroying sidecar %p.\n", surface);
++    if (surface->texture)
++        ID3D11Texture2D_Release(surface->texture);
++    if (surface->context)
++        ID3D11DeviceContext_Release(surface->context);
++    if (surface->device)
++        ID3D11Device_Release(surface->device);
++    if (surface->d3d11_module)
++        FreeLibrary(surface->d3d11_module);
++    free(surface);
++}
++
++HRESULT d3d9_dxmt_video_surface_create(UINT width, UINT height,
++        D3DFORMAT format, struct d3d9_dxmt_video_surface **out,
++        HANDLE *shared_handle)
++{
++    D3D11_TEXTURE2D_DESC desc = {0};
++    struct d3d9_dxmt_video_surface *surface;
++    PFN_D3D11_CREATE_DEVICE create_device;
++    IDXGIResource *resource = NULL;
++    HRESULT hr;
++
++    *out = NULL;
++    *shared_handle = NULL;
++
++    if (!(surface = calloc(1, sizeof(*surface))))
++        return E_OUTOFMEMORY;
++
++    if (!(surface->d3d11_module = LoadLibraryW(L"d3d11.dll")))
++    {
++        hr = HRESULT_FROM_WIN32(GetLastError());
++        WARN("d3d9-video-bridge: LoadLibraryW(d3d11.dll) failed, hr %#lx.\n", hr);
++        goto failed;
++    }
++    if (!(create_device = (void *)GetProcAddress(surface->d3d11_module,
++            "D3D11CreateDevice")))
++    {
++        hr = HRESULT_FROM_WIN32(GetLastError());
++        WARN("d3d9-video-bridge: D3D11CreateDevice resolution failed, hr %#lx.\n", hr);
++        goto failed;
++    }
++
++    hr = create_device(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL,
++            D3D11_CREATE_DEVICE_BGRA_SUPPORT, NULL, 0, D3D11_SDK_VERSION,
++            &surface->device, NULL, &surface->context);
++    if (FAILED(hr))
++    {
++        WARN("d3d9-video-bridge: D3D11 device creation failed, hr %#lx.\n", hr);
++        goto failed;
++    }
++
++    desc.Width = width;
++    desc.Height = height;
++    desc.MipLevels = 1;
++    desc.ArraySize = 1;
++    desc.Format = format == D3DFMT_A8R8G8B8
++            ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_B8G8R8X8_UNORM;
++    desc.SampleDesc.Count = 1;
++    desc.Usage = D3D11_USAGE_DEFAULT;
++    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
++    desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED;
++
++    hr = ID3D11Device_CreateTexture2D(surface->device, &desc, NULL,
++            &surface->texture);
++    if (FAILED(hr))
++    {
++        WARN("d3d9-video-bridge: shared texture creation failed, hr %#lx.\n", hr);
++        goto failed;
++    }
++
++    hr = ID3D11Texture2D_QueryInterface(surface->texture, &IID_IDXGIResource,
++            (void **)&resource);
++    if (FAILED(hr))
++    {
++        WARN("d3d9-video-bridge: IDXGIResource query failed, hr %#lx.\n", hr);
++        goto failed;
++    }
++    hr = IDXGIResource_GetSharedHandle(resource, shared_handle);
++    IDXGIResource_Release(resource);
++    resource = NULL;
++    if (FAILED(hr) || !*shared_handle)
++    {
++        if (SUCCEEDED(hr))
++            hr = E_FAIL;
++        WARN("d3d9-video-bridge: shared handle acquisition failed, hr %#lx.\n", hr);
++        goto failed;
++    }
++
++    TRACE("d3d9-video-bridge: created %ux%u format %#x sidecar %p, handle %p.\n",
++            width, height, format, surface, *shared_handle);
++    *out = surface;
++    return S_OK;
++
++failed:
++    if (resource)
++        IDXGIResource_Release(resource);
++    d3d9_dxmt_video_surface_destroy(surface);
++    *shared_handle = NULL;
++    return hr;
++}
+diff --git a/dlls/d3d9/dxmt_video_bridge.h b/dlls/d3d9/dxmt_video_bridge.h
+new file mode 100644
+index 0000000..549fdd9
+--- /dev/null
++++ b/dlls/d3d9/dxmt_video_bridge.h
+@@ -0,0 +1,19 @@
++/* Opt-in D3D9 render-target sidecar for DXMT video consumers. */
++
++#ifndef __WINE_D3D9_DXMT_VIDEO_BRIDGE_H
++#define __WINE_D3D9_DXMT_VIDEO_BRIDGE_H
++
++#include "d3d9.h"
++
++struct d3d9_dxmt_video_surface;
++
++BOOL d3d9_dxmt_video_bridge_enabled(void);
++BOOL d3d9_dxmt_video_bridge_matches(BOOL extended, UINT width, UINT height,
++        D3DFORMAT format, D3DMULTISAMPLE_TYPE multisample,
++        BOOL lockable, const HANDLE *shared_handle);
++HRESULT d3d9_dxmt_video_surface_create(UINT width, UINT height,
++        D3DFORMAT format, struct d3d9_dxmt_video_surface **out,
++        HANDLE *shared_handle);
++void d3d9_dxmt_video_surface_destroy(struct d3d9_dxmt_video_surface *surface);
++
++#endif
+diff --git a/dlls/d3d9/surface.c b/dlls/d3d9/surface.c
+index 1ea8c60..a88ac0f 100644
+--- a/dlls/d3d9/surface.c
++++ b/dlls/d3d9/surface.c
+@@ -344,6 +344,7 @@ static const struct IDirect3DSurface9Vtbl d3d9_surface_vtbl =
+ static void STDMETHODCALLTYPE surface_wined3d_object_destroyed(void *parent)
+ {
+     struct d3d9_surface *surface = parent;
++    d3d9_dxmt_video_surface_destroy(surface->dxmt_video_surface);
+     d3d9_resource_cleanup(&surface->resource);
+     free(surface);
+ }

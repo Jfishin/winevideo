@@ -6,15 +6,17 @@ ROOT="$(dirname "$HERE")"                 # winevideo/
 APP="$HERE/winevideo Patcher.app"
 MACOS="$APP/Contents/MacOS"
 RES="$APP/Contents/Resources"
+MODULE_CACHE="${TMPDIR:-/tmp}/winevideo-swift-module-cache"
 
 rm -rf "$APP"
-mkdir -p "$MACOS" "$RES"
+mkdir -p "$MACOS" "$RES" "$MODULE_CACHE"
 
 echo "=== compiling SwiftUI app ==="
 swiftc "$HERE/WineVideoPatcher.swift" -O -parse-as-library \
   -o "$MACOS/winevideo-patcher" \
   -framework SwiftUI -framework AppKit -framework UniformTypeIdentifiers \
-  -target arm64-apple-macos14.0
+  -target arm64-apple-macos14.0 \
+  -module-cache-path "$MODULE_CACHE"
 
 echo "=== Info.plist ==="
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -38,6 +40,10 @@ echo "=== bundling patch script + payload into Resources ==="
 cp "$ROOT/patcher/patch.sh" "$ROOT/patcher/restore.sh" "$RES/"
 chmod +x "$RES/patch.sh" "$RES/restore.sh"
 cp -R "$ROOT/patcher/payload" "$RES/payload"
+mkdir -p "$RES/source-patches"
+cp "$ROOT/build/patches/0008-d3d9-dxmt-video-bridge-handle.patch" "$RES/source-patches/"
+cp "$ROOT/build/patches/0009-d3d9-dxmt-video-bridge-upload.patch" "$RES/source-patches/"
+cp "$ROOT/build/patches/SOURCES.md" "$RES/source-patches/"
 
 echo "=== ad-hoc sign ==="
 codesign -f -s - --deep "$APP" 2>/dev/null || true

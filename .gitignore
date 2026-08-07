@@ -3,9 +3,12 @@ dist/
 *.o
 *.obj
 *.exe
+*.dxvk-cache
 # stray wine/winedbg crash dumps
 backtrace*.txt
 *.cxlog
 *.log
 .DS_Store
 build/_local-patches/
+tests/.build/
+tests/logs/
